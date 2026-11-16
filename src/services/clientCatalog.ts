@@ -1,0 +1,551 @@
+import { COVER_ASSETS, INITIAL_PLAYLISTS, INITIAL_TRACKS } from '../data/catalog';
+import type {
+  NewAuthorisedTrackInput,
+  PlaylistWithStats,
+  ProviderStatus,
+  SearchFilters,
+  Track,
+} from '../types/music';
+
+export interface CatalogOverviewData {
+  playlists: PlaylistWithStats[];
+  tracks: Track[];
+  facets: {
+    artists: string[];
+    albums: string[];
+    genres: string[];
+    languages: string[];
+  };
+  providers: ProviderStatus[];
+}
+
+export interface SearchCatalogResult {
+  localTracks: Track[];
+  externalTracks: Track[];
+  facets: CatalogOverviewData['facets'];
+}
+
+const STATIC_TRACKS_KEY = 'gg_static_tracks_v1';
+const STATIC_ASSIGNMENTS_KEY = 'gg_static_assignments_v1';
+
+let backendDetected: boolean | null = null;
+
+function isJsonResponse(res: Response): boolean {
+  const ct = res.headers.get('content-type') || '';
+  return res.ok && ct.includes('application/json');
+}
+
+function toDirectAudiusStreamUrl(streamUrl: string): string {
+  const match = streamUrl.match(/^\/api\/audius\/stream\/([a-zA-Z0-9_-]+)/);
+  if (match) {
+    return `https://api.audius.co/v1/tracks/${encodeURIComponent(match[1])}/stream?app_name=GullyGroove`;
+  }
+  return streamUrl;
+}
+
+function normalizeStaticTrack(track: Track): Track {
+  return {
+    ...track,
+    streamUrl: track.streamUrl ? toDirectAudiusStreamUrl(track.streamUrl) : '',
+    playlistIds: Array.from(
+      new Set([
+        'gapless-playback',
+        ...(track.playlistIds || []).filter((id) => id !== 'relaxing-music'),
+      ])
+    ),
+  };
+}
+
+function readStoredTracks(): Track[] {
+  try {
+    const raw = localStorage.getItem(STATIC_TRACKS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as Track[];
+    return Array.isArray(parsed) ? parsed.map(normalizeStaticTrack) : [];
+  } catch {
+    return [];
+  }
+}
+
+function readStoredAssignments(): Record<string, string[]> {
+  try {
+    const raw = localStorage.getItem(STATIC_ASSIGNMENTS_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) as Record<string, string[]>;
+  } catch {
+    return {};
+  }
+}
+
+function getStaticTracks(): Track[] {
+  const stored = readStoredTracks();
+  const assignments = readStoredAssignments();
+  const map = new Map<string, Track>();
+
+  for (const t of [...stored, ...INITIAL_TRACKS]) {
+    const normalized = normalizeStaticTrack(t);
+    const extraPlaylists = assignments[normalized.id] || [];
+    normalized.playlistIds = Array.from(
+      new Set(['gapless-playback', ...normalized.playlistIds, ...extraPlaylists])
+    );
+    map.set(normalized.id, normalized);
+  }
+  return Array.from(map.values());
+}
+
+function buildStaticPlaylists(tracks: Track[]): PlaylistWithStats[] {
+  return INITIAL_PLAYLISTS.map((pl) => {
+    const plTracks = tracks.filter((t) => t.playlistIds.includes(pl.id));
+    const totalDurationSec = plTracks.reduce((acc, t) => acc + t.durationSec, 0);
+    return {
+      ...pl,
+      trackCount: plTracks.length,
+      totalDurationSec,
+    };
+  });
+}
+
+function buildFacets(tracks: Track[]): CatalogOverviewData['facets'] {
+  return {
+    artists: Array.from(new Set(tracks.map((t) => t.artist))).sort(),
+    albums: Array.from(new Set(tracks.map((t) => t.album))).sort(),
+    genres: Array.from(new Set(tracks.map((t) => t.genre))).sort(),
+    languages: Array.from(new Set(tracks.map((t) => t.language))).sort(),
+  };
+}
+
+function getStaticProviders(): ProviderStatus[] {
+  return [
+    {
+      id: 'audius-open',
+      name: 'Audius Open Streaming',
+      category: 'Licensed Preview API',
+      configured: true,
+      active: true,
+      playbackRights: 'full-stream',
+      licensePolicy:
+        'Streams full-length Creative Commons / independent artist tracks via Audius decentralized open API.',
+      description:
+        'Full-song direct MP3 streaming across Bollywood mixes, Punjabi, Haryanvi, Bhojpuri, 90s classics, and DJ mashups.',
+      envKeysRequired: [],
+    },
+    {
+      id: 'itunes-preview',
+      name: 'Apple Music / iTunes India Previews',
+      category: 'Licensed Preview API',
+      configured: true,
+      active: true,
+      playbackRights: 'preview-30s',
+      licensePolicy:
+        'Provides official 30-second AAC previews and album metadata from the Indian & global catalog.',
+      description:
+        'Permitted 30-second previews for chartbusters, movie soundtracks, and international releases.',
+      envKeysRequired: [],
+    },
+    {
+      id: 'youtube-data',
+      name: 'YouTube Official Embed',
+      category: 'Metadata & Discovery',
+      configured: true,
+      active: true,
+      playbackRights: 'embed-only',
+      licensePolicy:
+        'Plays exclusively through the official YouTube IFrame Player API, respecting YouTube playback policies.',
+      description:
+        'Integrated dual-deck YouTube player with automatic 8-second crossfade transitions.',
+      envKeysRequired: [],
+    },
+  ];
+}
+
+export async function fetchCatalogOverview(): Promise<CatalogOverviewData> {
+  if (backendDetected !== false) {
+    try {
+      const res = await fetch('/api/catalog/overview');
+      if (isJsonResponse(res)) {
+        backendDetected = true;
+        return (await res.json()) as CatalogOverviewData;
+      }
+    } catch {
+      // Static hosting fallback (GitHub Pages)
+    }
+    backendDetected = false;
+  }
+
+  const tracks = getStaticTracks();
+  return {
+    playlists: buildStaticPlaylists(tracks),
+    tracks,
+    facets: buildFacets(tracks),
+    providers: getStaticProviders(),
+  };
+}
+
+function filterTracksClient(tracks: Track[], filters: Partial<SearchFilters>): Track[] {
+  const q = (filters.query || '').trim().toLowerCase();
+  const artist = (filters.artist || '').trim().toLowerCase();
+  const album = (filters.album || '').trim().toLowerCase();
+  const genre = (filters.genre || '').trim().toLowerCase();
+  const language = (filters.language || '').trim().toLowerCase();
+  const providerId = (filters.providerId || '').trim().toLowerCase();
+
+  return tracks.filter((track) => {
+    if (q) {
+      const hay = `${track.title} ${track.artist} ${track.album} ${track.genre} ${track.language}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    if (artist && artist !== 'all' && track.artist.toLowerCase() !== artist) return false;
+    if (album && album !== 'all' && track.album.toLowerCase() !== album) return false;
+    if (genre && genre !== 'all' && track.genre.toLowerCase() !== genre) return false;
+    if (language && language !== 'all' && track.language.toLowerCase() !== language) return false;
+    if (providerId && providerId !== 'all' && track.providerId.toLowerCase() !== providerId)
+      return false;
+    return true;
+  });
+}
+
+async function searchAudiusClient(query: string, limit = 10): Promise<Track[]> {
+  try {
+    const url = `https://api.audius.co/v1/tracks/search?query=${encodeURIComponent(
+      query
+    )}&limit=${limit}&app_name=GullyGroove`;
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const json = (await res.json()) as {
+      data?: Array<{
+        id: string;
+        title?: string;
+        duration?: number;
+        genre?: string;
+        play_count?: number;
+        permalink?: string;
+        artwork?: { '480x480'?: string; '150x150'?: string };
+        user?: { name?: string };
+      }>;
+    };
+
+    return (json.data || [])
+      .filter((item) => item.id && item.title)
+      .map((item) => ({
+        id: `audius-${item.id}`,
+        title: item.title || 'Untitled Track',
+        artist: item.user?.name || 'Independent Artist',
+        album: 'Audius Open Catalog',
+        genre: item.genre || 'Independent',
+        language: 'Hindi / Global',
+        durationSec: Math.max(15, Math.round(item.duration || 180)),
+        bpm: 108,
+        year: 2025,
+        coverUrl:
+          item.artwork?.['480x480'] ||
+          item.artwork?.['150x150'] ||
+          COVER_ASSETS.heroStage,
+        providerId: 'audius-open',
+        providerName: 'Audius Open Streaming',
+        licenseType: 'Creative Commons (CC-BY)',
+        licenseSummary: 'Full-length independent stream via Audius Open API.',
+        playbackRights: 'full-stream',
+        streamUrl: `https://api.audius.co/v1/tracks/${encodeURIComponent(
+          item.id
+        )}/stream?app_name=GullyGroove`,
+        externalUrl: item.permalink ? `https://audius.co${item.permalink}` : 'https://audius.co',
+        attribution: `${item.user?.name || 'Artist'} via Audius`,
+        playlistIds: ['gapless-playback'],
+        plays: Number(item.play_count) || 12000,
+      }));
+  } catch {
+    return [];
+  }
+}
+
+async function searchItunesClient(query: string, limit = 12): Promise<Track[]> {
+  try {
+    const url = `https://itunes.apple.com/search?term=${encodeURIComponent(
+      query
+    )}&country=IN&media=music&entity=song&limit=${limit}`;
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const json = (await res.json()) as {
+      results?: Array<{
+        trackId?: number;
+        trackName?: string;
+        artistName?: string;
+        collectionName?: string;
+        primaryGenreName?: string;
+        artworkUrl100?: string;
+        previewUrl?: string;
+        trackViewUrl?: string;
+        releaseDate?: string;
+      }>;
+    };
+
+    return (json.results || [])
+      .filter((item) => item.trackId && item.trackName && item.previewUrl)
+      .map((item) => ({
+        id: `itunes-${item.trackId}`,
+        title: item.trackName || 'Unknown Track',
+        artist: item.artistName || 'Unknown Artist',
+        album: item.collectionName || 'Single',
+        genre: item.primaryGenreName || 'Bollywood',
+        language: 'Hindi / Global',
+        durationSec: 30,
+        bpm: 105,
+        year: item.releaseDate ? new Date(item.releaseDate).getFullYear() : 2024,
+        coverUrl: item.artworkUrl100
+          ? item.artworkUrl100.replace('100x100bb', '400x400bb')
+          : COVER_ASSETS.bollywoodRomantic,
+        providerId: 'itunes-preview',
+        providerName: 'Apple Music / iTunes India',
+        licenseType: 'Permitted 30s Preview',
+        licenseSummary: 'Official 30-second preview streamed from Apple Music / iTunes India.',
+        playbackRights: 'preview-30s',
+        streamUrl: item.previewUrl || '',
+        externalUrl: item.trackViewUrl,
+        attribution: `${item.artistName || 'Artist'} via Apple Music Preview`,
+        playlistIds: ['gapless-playback'],
+        plays: 500000,
+      }));
+  } catch {
+    return [];
+  }
+}
+
+export async function searchCatalog(
+  filters: Partial<SearchFilters>,
+  includeExternal: boolean,
+  signal?: AbortSignal
+): Promise<SearchCatalogResult> {
+  if (backendDetected !== false) {
+    try {
+      const params = new URLSearchParams({
+        query: filters.query || '',
+        artist: filters.artist || 'all',
+        album: filters.album || 'all',
+        genre: filters.genre || 'all',
+        language: filters.language || 'all',
+        providerId: filters.providerId || 'all',
+        includeExternal: includeExternal ? 'true' : 'false',
+      });
+      const res = await fetch(`/api/tracks?${params.toString()}`, { signal });
+      if (isJsonResponse(res)) {
+        backendDetected = true;
+        return (await res.json()) as SearchCatalogResult;
+      }
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') throw err;
+    }
+    backendDetected = false;
+  }
+
+  const allTracks = getStaticTracks();
+  const localTracks = filterTracksClient(allTracks, filters);
+  let externalTracks: Track[] = [];
+
+  const q = (filters.query || '').trim();
+  if (includeExternal && q.length >= 2) {
+    const [audiusRes, itunesRes] = await Promise.allSettled([
+      searchAudiusClient(q, 10),
+      searchItunesClient(q, 12),
+    ]);
+    if (audiusRes.status === 'fulfilled') externalTracks.push(...audiusRes.value);
+    if (itunesRes.status === 'fulfilled') externalTracks.push(...itunesRes.value);
+
+    if (filters.providerId && filters.providerId !== 'all') {
+      externalTracks = externalTracks.filter((t) => t.providerId === filters.providerId);
+    }
+    if (filters.artist && filters.artist !== 'all') {
+      externalTracks = externalTracks.filter((t) =>
+        t.artist.toLowerCase().includes(filters.artist!.toLowerCase())
+      );
+    }
+    if (filters.genre && filters.genre !== 'all') {
+      externalTracks = externalTracks.filter((t) =>
+        t.genre.toLowerCase().includes(filters.genre!.toLowerCase())
+      );
+    }
+  }
+
+  return {
+    localTracks,
+    externalTracks,
+    facets: buildFacets(allTracks),
+  };
+}
+
+export async function assignTrackToPlaylist(
+  playlistId: string,
+  trackId: string,
+  discoveredTrack?: Track
+): Promise<{
+  track: Track;
+  playlists: PlaylistWithStats[];
+  facets: CatalogOverviewData['facets'];
+} | null> {
+  if (backendDetected !== false) {
+    try {
+      const res = await fetch(`/api/playlists/${encodeURIComponent(playlistId)}/tracks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trackId, track: discoveredTrack }),
+      });
+      if (isJsonResponse(res)) {
+        backendDetected = true;
+        return (await res.json()) as {
+          track: Track;
+          playlists: PlaylistWithStats[];
+          facets: CatalogOverviewData['facets'];
+        };
+      }
+    } catch {
+      // Static fallback
+    }
+    backendDetected = false;
+  }
+
+  const stored = readStoredTracks();
+  const assignments = readStoredAssignments();
+  const existingLocal = getStaticTracks().find((t) => t.id === trackId);
+
+  let targetTrack = existingLocal;
+  if (!targetTrack && discoveredTrack && discoveredTrack.id === trackId) {
+    targetTrack = normalizeStaticTrack(discoveredTrack);
+    stored.unshift(targetTrack);
+    try {
+      localStorage.setItem(STATIC_TRACKS_KEY, JSON.stringify(stored));
+    } catch {
+      // ignore storage quota errors
+    }
+  }
+  if (!targetTrack) return null;
+
+  const updatedPlaylists = Array.from(
+    new Set(['gapless-playback', ...(targetTrack.playlistIds || []), playlistId])
+  );
+  assignments[trackId] = updatedPlaylists;
+  try {
+    localStorage.setItem(STATIC_ASSIGNMENTS_KEY, JSON.stringify(assignments));
+  } catch {
+    // ignore
+  }
+
+  const allTracks = getStaticTracks();
+  const updatedTrack = allTracks.find((t) => t.id === trackId) || {
+    ...targetTrack,
+    playlistIds: updatedPlaylists,
+  };
+
+  return {
+    track: updatedTrack,
+    playlists: buildStaticPlaylists(allTracks),
+    facets: buildFacets(allTracks),
+  };
+}
+
+export async function createVaultTrack(input: NewAuthorisedTrackInput): Promise<{
+  track: Track;
+  playlists: PlaylistWithStats[];
+  facets: CatalogOverviewData['facets'];
+}> {
+  if (backendDetected !== false) {
+    try {
+      const res = await fetch('/api/vault/tracks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      if (isJsonResponse(res)) {
+        backendDetected = true;
+        return (await res.json()) as {
+          track: Track;
+          playlists: PlaylistWithStats[];
+          facets: CatalogOverviewData['facets'];
+        };
+      }
+    } catch {
+      // Static fallback
+    }
+    backendDetected = false;
+  }
+
+  const created: Track = {
+    id: `vault-${Date.now().toString(36)}`,
+    title: input.title.trim(),
+    artist: input.artist.trim(),
+    album: input.album.trim() || 'Independent Release',
+    genre: input.genre.trim() || 'Indipop',
+    language: input.language.trim() || 'Hindi',
+    durationSec: Math.max(10, Math.min(Number(input.durationSec) || 218, 3600)),
+    bpm: 108,
+    year: 2026,
+    coverUrl: input.coverUrl?.trim() || COVER_ASSETS.heroStage,
+    providerId: 'user-vault',
+    providerName: 'Authorised Media Vault',
+    licenseType: input.licenseType || 'Royalty-Free Studio',
+    licenseSummary: `Registered in Authorised Media Vault (${input.licenseType}).`,
+    playbackRights: 'full-stream',
+    streamUrl: input.streamUrl.trim(),
+    attribution: input.attribution?.trim() || `${input.artist.trim()} (${input.licenseType})`,
+    playlistIds: Array.from(
+      new Set(['gapless-playback', input.playlistId || 'top-50-hindi'])
+    ),
+    plays: 1,
+    isUserAdded: true,
+  };
+
+  const stored = readStoredTracks();
+  stored.unshift(created);
+  try {
+    localStorage.setItem(STATIC_TRACKS_KEY, JSON.stringify(stored));
+  } catch {
+    // ignore
+  }
+
+  const allTracks = getStaticTracks();
+  return {
+    track: created,
+    playlists: buildStaticPlaylists(allTracks),
+    facets: buildFacets(allTracks),
+  };
+}
+
+export async function removeVaultTrack(trackId: string): Promise<{
+  playlists: PlaylistWithStats[];
+  facets: CatalogOverviewData['facets'];
+} | null> {
+  if (backendDetected !== false) {
+    try {
+      const res = await fetch(`/api/vault/tracks/${encodeURIComponent(trackId)}`, {
+        method: 'DELETE',
+      });
+      if (isJsonResponse(res)) {
+        backendDetected = true;
+        return (await res.json()) as {
+          playlists: PlaylistWithStats[];
+          facets: CatalogOverviewData['facets'];
+        };
+      }
+    } catch {
+      // Static fallback
+    }
+    backendDetected = false;
+  }
+
+  const stored = readStoredTracks().filter((t) => !(t.id === trackId && t.isUserAdded));
+  try {
+    localStorage.setItem(STATIC_TRACKS_KEY, JSON.stringify(stored));
+  } catch {
+    // ignore
+  }
+  const allTracks = getStaticTracks();
+  return {
+    playlists: buildStaticPlaylists(allTracks),
+    facets: buildFacets(allTracks),
+  };
+}
+
+export function recordTrackPlay(trackId: string): void {
+  if (backendDetected === false) return;
+  fetch(`/api/tracks/${encodeURIComponent(trackId)}/play`, { method: 'POST' }).catch(
+    () => {}
+  );
+}
