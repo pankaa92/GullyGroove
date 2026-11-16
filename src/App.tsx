@@ -452,8 +452,8 @@ export default function App() {
             </span>
           </button>
 
-          <span className="text-[11px] font-medium text-blue-300 whitespace-nowrap shrink-0">
-            Gapless 8s
+          <span className="text-[10px] sm:text-[11px] font-medium text-blue-300 truncate text-right min-w-0">
+            GullyGroove with Gapless Crossfade
           </span>
         </header>
 
