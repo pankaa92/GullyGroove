@@ -5,28 +5,41 @@ import path from 'path';
 import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
+  let resolvedOutDir = 'dist';
+
   return {
     base: './',
     plugins: [
       react(),
       tailwindcss(),
-      // Copies src/assets into dist/ so relative URLs like
-      // "src/assets/images/..." resolve cleanly in production and GitHub Pages builds.
       {
         name: 'copy-unbundled-src-assets',
         apply: 'build',
+        configResolved(config) {
+          resolvedOutDir = config.build.outDir || 'dist';
+        },
         closeBundle(error?: Error): void {
           if (error) {
             return;
           }
-          const distDir = path.resolve(__dirname, 'dist');
+          const outDir = path.resolve(__dirname, resolvedOutDir);
           const srcAssets = path.resolve(__dirname, 'src/assets');
-          const distAssets = path.resolve(distDir, 'src/assets');
-          if (fs.existsSync(distDir) && fs.existsSync(srcAssets)) {
+          const distAssets = path.resolve(outDir, 'src/assets');
+          if (fs.existsSync(outDir) && fs.existsSync(srcAssets)) {
             fs.cpSync(srcAssets, distAssets, {recursive: true, force: true});
           }
-          if (fs.existsSync(distDir)) {
-            fs.writeFileSync(path.join(distDir, '.nojekyll'), '');
+          if (fs.existsSync(outDir)) {
+            fs.writeFileSync(path.join(outDir, '.nojekyll'), '');
+            const indexFile = path.join(outDir, 'index.html');
+            const notFoundFile = path.join(outDir, '404.html');
+            if (fs.existsSync(indexFile)) {
+              fs.copyFileSync(indexFile, notFoundFile);
+            }
+            if (path.basename(outDir) === 'dist') {
+              const docsDir = path.resolve(__dirname, 'docs');
+              fs.rmSync(docsDir, {recursive: true, force: true});
+              fs.cpSync(outDir, docsDir, {recursive: true, force: true});
+            }
           }
         },
       },
