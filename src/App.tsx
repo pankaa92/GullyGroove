@@ -547,11 +547,11 @@ export default function App() {
                       <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2.5 sm:gap-3 pt-1 sm:pt-2">
                         <button
                           type="button"
-                          onClick={() => quickPlayPlaylist('gapless-playback')}
+                          onClick={() => quickPlayPlaylist('top-50-hindi')}
                           className="inline-flex h-11 items-center justify-center gap-2 px-5 sm:px-6 rounded-xl bg-gradient-to-r from-violet-600 to-blue-500 text-sm font-semibold text-white shadow-lg shadow-violet-950/50 hover:opacity-95 active:scale-[0.99] transition-all whitespace-nowrap shrink-0"
                         >
                           <Play className="w-4 h-4 fill-current" />
-                          Play Gapless Mix
+                          Top Hindi Songs Playlist
                         </button>
 
                         <button
@@ -665,7 +665,7 @@ export default function App() {
                         All Curated Playlists
                       </h1>
                       <p className="text-sm text-slate-400 mt-1">
-                        Every mood from Top 50 Hindi Songs and Evening Daru to Workout Motivation.
+                        Every mood from Top Hindi Songs and Evening Daru to Workout Motivation.
                       </p>
                     </div>
 
