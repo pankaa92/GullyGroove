@@ -1084,6 +1084,7 @@ export function PlayerBar({
           !userPausedRef.current &&
           isPlayingRef.current &&
           (document.hidden || !document.hasFocus()) &&
+          Date.now() - lastVisibilityChangeMsRef.current < 5000 &&
           player.getPlayerState?.() === 2
         ) {
           player.playVideo();
