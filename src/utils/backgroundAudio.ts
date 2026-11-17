@@ -1,11 +1,10 @@
 import type { Track } from '../types/music';
 
 /**
- * Generates an inaudible 1-second 8kHz mono 8-bit PCM silent WAV Blob URL.
- * Playing this silently on a top-level <audio loop> element while embedded YouTube
- * streams are active lets mobile and desktop browsers maintain OS Audio Focus,
- * lock-screen Media Session controls, and background playback when minimized or
- * when the display is turned off.
+ * Generates an ultra-quiet (-50dBFS, 12Hz infrasonic) 15-second 8kHz mono 16-bit PCM WAV Blob URL.
+ * Chromium requires media duration >= 5 seconds and non-zero signal energy to promote an audio
+ * stream into a persistent Chrome Media Notification & Lock-Screen widget when the browser is
+ * minimized, switched to another app, or the display turns off.
  */
 let cachedSilentWavUrl: string | null = null;
 
@@ -13,8 +12,10 @@ export function getSilentKeepAliveWavUrl(): string {
   if (cachedSilentWavUrl) return cachedSilentWavUrl;
 
   const sampleRate = 8000;
-  const numSamples = sampleRate; // 1 second
-  const dataSize = numSamples;
+  const durationSec = 15;
+  const numSamples = sampleRate * durationSec; // 15 seconds (>5s Chromium MediaSession threshold)
+  const bytesPerSample = 2; // 16-bit signed PCM
+  const dataSize = numSamples * bytesPerSample;
   const buffer = new ArrayBuffer(44 + dataSize);
   const view = new DataView(buffer);
 
@@ -32,15 +33,21 @@ export function getSilentKeepAliveWavUrl(): string {
   view.setUint16(20, 1, true); // PCM format
   view.setUint16(22, 1, true); // Mono
   view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate, true); // Byte rate
-  view.setUint16(32, 1, true); // Block align
-  view.setUint16(34, 8, true); // Bits per sample
+  view.setUint32(28, sampleRate * bytesPerSample, true); // Byte rate
+  view.setUint16(32, bytesPerSample, true); // Block align
+  view.setUint16(34, 16, true); // Bits per sample
   writeAscii(36, 'data');
   view.setUint32(40, dataSize, true);
 
-  // 8-bit unsigned PCM silence midpoint is 128 (0x80)
+  // 12Hz infrasonic integer cycle over 15s (180 cycles) at amplitude 340/32767 (~ -50dBFS at volume 0.3).
+  // Seamless loop boundary, imperceptible on speakers, reliably holds Chrome Media Notification & OS focus.
+  const cycles = 12 * durationSec;
+  const amplitude = 340;
   for (let i = 0; i < numSamples; i += 1) {
-    view.setUint8(44 + i, 128);
+    const sample = Math.round(
+      Math.sin((2 * Math.PI * cycles * i) / numSamples) * amplitude
+    );
+    view.setInt16(44 + i * 2, sample, true);
   }
 
   const blob = new Blob([buffer], { type: 'audio/wav' });
@@ -134,8 +141,8 @@ export function registerMediaSession(
       album: track.album || 'GullyGroove',
       artwork: resolvedCover
         ? [
-            { src: resolvedCover, sizes: '256x256', type: 'image/jpeg' },
-            { src: resolvedCover, sizes: '512x512', type: 'image/jpeg' },
+            { src: resolvedCover, sizes: '256x256' },
+            { src: resolvedCover, sizes: '512x512' },
           ]
         : [],
     });
@@ -156,6 +163,7 @@ export function registerMediaSession(
 
   safeSet('play', () => handlers.onPlay());
   safeSet('pause', () => handlers.onPause());
+  safeSet('stop', () => handlers.onPause());
   safeSet('nexttrack', () => handlers.onNext());
   safeSet('previoustrack', () => handlers.onPrev());
   safeSet('seekbackward', (details) => {

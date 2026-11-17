@@ -35,6 +35,7 @@ interface YTPlayerInstance {
   seekTo: (seconds: number, allowSeekAhead?: boolean) => void;
   getCurrentTime: () => number;
   getDuration: () => number;
+  getPlayerState?: () => number;
   setVolume: (volume: number) => void;
   mute: () => void;
   unMute: () => void;
@@ -182,8 +183,12 @@ export function PlayerBar({
   const transitionLockFromIdRef = useRef<string>('');
   const consecutiveYtErrorsRef = useRef(0);
   const userPausedRef = useRef(false);
+  const prevIsPlayingRef = useRef(isPlaying);
   const lastVisibilityChangeMsRef = useRef(0);
   const lastMsPosSyncRef = useRef(0);
+  const lastYtMsAssertRef = useRef(0);
+  const keepAliveUnlockedRef = useRef(false);
+  const deckUnlockedRef = useRef<[boolean, boolean]>([false, false]);
 
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -242,16 +247,97 @@ export function PlayerBar({
     const ka = keepAliveAudioRef.current;
     if (ka) {
       ka.src = getSilentKeepAliveWavUrl();
-      ka.volume = 0.01;
+      ka.volume = 0.3;
     }
   }, []);
 
-  // Track intentional user play state so OS/browser backgrounding never leaves YouTube stuck paused
+  // Unlock top-level <audio> elements synchronously on valid HTML user-activation events
+  // (click, touchend, keydown) so mobile Safari and Android Chrome allow background handoffs
+  // and YouTube keep-alive audio without NotAllowedError.
+  useEffect(() => {
+    const silentUrl = getSilentKeepAliveWavUrl();
+    const primeAudioOnGesture = () => {
+      const ka = keepAliveAudioRef.current;
+      if (ka && !keepAliveUnlockedRef.current) {
+        keepAliveUnlockedRef.current = true;
+        if (!ka.src) ka.src = silentUrl;
+        ka.volume = 0.3;
+        ka.play()
+          .then(() => {
+            window.setTimeout(() => {
+              if (!isPlayingRef.current) {
+                ka.pause();
+              }
+            }, 80);
+          })
+          .catch(() => {
+            keepAliveUnlockedRef.current = false;
+          });
+      }
+
+      ([0, 1] as const).forEach((idx) => {
+        const deck = idx === 0 ? deck0Ref.current : deck1Ref.current;
+        if (
+          !deck ||
+          deckUnlockedRef.current[idx] ||
+          deckTrackIdRef.current[idx] ||
+          isPlayingRef.current
+        ) {
+          return;
+        }
+        deckUnlockedRef.current[idx] = true;
+        deck.volume = 0;
+        deck.src = silentUrl;
+        deck.play()
+          .then(() => {
+            if (!deckTrackIdRef.current[idx]) {
+              deck.pause();
+              deck.removeAttribute('src');
+              deck.load();
+              deck.volume = mutedRef.current ? 0 : volumeRef.current;
+            }
+          })
+          .catch(() => {
+            deckUnlockedRef.current[idx] = false;
+          });
+      });
+
+      if (
+        keepAliveUnlockedRef.current &&
+        (deckUnlockedRef.current[0] || deckTrackIdRef.current[0]) &&
+        (deckUnlockedRef.current[1] || deckTrackIdRef.current[1])
+      ) {
+        document.removeEventListener('click', primeAudioOnGesture, true);
+        document.removeEventListener('touchend', primeAudioOnGesture, true);
+        document.removeEventListener('keydown', primeAudioOnGesture, true);
+      }
+    };
+
+    document.addEventListener('click', primeAudioOnGesture, true);
+    document.addEventListener('touchend', primeAudioOnGesture, true);
+    document.addEventListener('keydown', primeAudioOnGesture, true);
+    return () => {
+      document.removeEventListener('click', primeAudioOnGesture, true);
+      document.removeEventListener('touchend', primeAudioOnGesture, true);
+      document.removeEventListener('keydown', primeAudioOnGesture, true);
+    };
+  }, []);
+
+  // Track intentional user play/pause state so OS/browser backgrounding never leaves playback stuck paused
+  useEffect(() => {
+    if (isPlaying) {
+      userPausedRef.current = false;
+    } else if (prevIsPlayingRef.current) {
+      userPausedRef.current = true;
+    }
+    prevIsPlayingRef.current = isPlaying;
+  }, [isPlaying]);
+
   useEffect(() => {
     if (isPlaying) {
       userPausedRef.current = false;
     }
-  }, [isPlaying, currentTrack?.id]);
+  }, [currentTrack?.id, isPlaying]);
 
   const getDeck = useCallback((idx: 0 | 1): HTMLAudioElement | null => {
     return idx === 0 ? deck0Ref.current : deck1Ref.current;
@@ -756,8 +842,15 @@ export function PlayerBar({
                 }
               }
 
+              const readyIframe = (slotIdx === 0 ? ytHost0Ref.current : ytHost1Ref.current)?.querySelector('iframe');
+              if (readyIframe) {
+                readyIframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture; fullscreen');
+              }
+
               if (isPlayingRef.current || startZero) {
                 event.target.playVideo();
+                keepAliveAudioRef.current?.play().catch(() => {});
+                syncMediaSessionRef.current();
               }
             },
             onStateChange: (event) => {
@@ -779,23 +872,31 @@ export function PlayerBar({
 
               if (event.data === PLAYING) {
                 consecutiveYtErrorsRef.current = 0;
+                keepAliveAudioRef.current?.play().catch(() => {});
                 if (!transitionRef.current && slotIdx === activeYtDeckIdxRef.current) {
                   const ytDur = event.target.getDuration();
                   if (Number.isFinite(ytDur) && ytDur > 0) {
                     setDuration(ytDur);
                   }
                   onSetPlayingStateRef.current(true);
+                  // Re-assert GullyGroove MediaSession so the YouTube iframe cannot overwrite lock-screen controls
+                  syncMediaSessionRef.current();
+                  window.setTimeout(() => syncMediaSessionRef.current(), 350);
+                  window.setTimeout(() => syncMediaSessionRef.current(), 1200);
                 }
               } else if (event.data === PAUSED) {
-                const isVisibilityTransition =
-                  document.hidden || Date.now() - lastVisibilityChangeMsRef.current < 3500;
+                const isBackgroundOrFocusLoss =
+                  document.hidden ||
+                  !document.hasFocus() ||
+                  Date.now() - lastVisibilityChangeMsRef.current < 8000;
                 if (
-                  isVisibilityTransition &&
+                  isBackgroundOrFocusLoss &&
                   !userPausedRef.current &&
                   isPlayingRef.current
                 ) {
                   // Browser/OS paused the YouTube iframe during tab switch, minimize, or lock screen.
                   // Immediately resume playback so music continues seamlessly in the background.
+                  keepAliveAudioRef.current?.play().catch(() => {});
                   try {
                     event.target.playVideo();
                   } catch {
@@ -809,7 +910,16 @@ export function PlayerBar({
                         // ignore
                       }
                     }
-                  }, 250);
+                  }, 200);
+                  window.setTimeout(() => {
+                    if (!userPausedRef.current && isPlayingRef.current) {
+                      try {
+                        event.target.playVideo();
+                      } catch {
+                        // ignore
+                      }
+                    }
+                  }, 600);
                   return;
                 }
 
@@ -912,22 +1022,23 @@ export function PlayerBar({
     return () => window.clearTimeout(timer);
   }, [currentTrack?.id, isPlaying, queue, shuffle, repeatMode, preloadIdleDeckForTrack]);
 
-  // Maintain silent top-level Audio Focus loop whenever YouTube is active so OS lock-screen,
-  // MediaSession controls, and background playback continue across app switch / screen lock.
+  // Maintain top-level Audio Focus loop whenever playback is active so OS lock-screen,
+  // MediaSession controls, and background playback continue uninterrupted across app switch,
+  // screen lock, and Audio <-> YouTube crossfade handoffs.
   useEffect(() => {
     const ka = keepAliveAudioRef.current;
     if (!ka) return;
     if (!ka.src) {
       ka.src = getSilentKeepAliveWavUrl();
     }
-    ka.volume = 0.01;
+    ka.volume = 0.3;
 
-    if (isPlaying && (isCurrentYouTube || hasAnyYtDeck)) {
+    if (isPlaying) {
       ka.play().catch(() => {});
     } else {
       ka.pause();
     }
-  }, [isPlaying, isCurrentYouTube, hasAnyYtDeck]);
+  }, [isPlaying, currentTrack?.id, isCurrentYouTube, hasAnyYtDeck]);
 
   // High-resolution unthrottled playback monitor for HTML5 audio (works in background tabs & screen-off)
   useEffect(() => {
@@ -935,6 +1046,9 @@ export function PlayerBar({
     return startBackgroundTicker(() => {
       const activeDeck = getDeck(activeDeckIdxRef.current);
       if (!activeDeck) return;
+      if (activeDeck.paused && activeDeck.src && !userPausedRef.current && isPlayingRef.current) {
+        activeDeck.play().catch(() => {});
+      }
       const cur = activeDeck.currentTime;
       const dur =
         Number.isFinite(activeDeck.duration) && activeDeck.duration > 0
@@ -953,14 +1067,28 @@ export function PlayerBar({
     }, 200);
   }, [isPlaying, currentTrack?.id, isCurrentYouTube, getDeck, maybeStartCrossfade]);
 
-  // High-resolution unthrottled playback monitor for YouTube (background crossfade & MediaSession sync)
+  // High-resolution unthrottled playback monitor for YouTube (background crossfade, anti-suspend & MediaSession sync)
   useEffect(() => {
     if (!isCurrentYouTube || !isPlaying) return;
     return startBackgroundTicker(() => {
+      const ka = keepAliveAudioRef.current;
+      if (ka && ka.paused && !userPausedRef.current && isPlayingRef.current) {
+        ka.play().catch(() => {});
+      }
+
       const activeSlot = activeYtDeckIdxRef.current;
       const player = ytPlayersRef.current[activeSlot];
       if (!player || !ytReadyRef.current[activeSlot]) return;
       try {
+        if (
+          !userPausedRef.current &&
+          isPlayingRef.current &&
+          (document.hidden || !document.hasFocus()) &&
+          player.getPlayerState?.() === 2
+        ) {
+          player.playVideo();
+        }
+
         const cur = player.getCurrentTime();
         const dur = player.getDuration();
         if (Number.isFinite(cur)) setCurrentTime(cur);
@@ -973,19 +1101,26 @@ export function PlayerBar({
             updateMediaSessionPosition(cur, dur);
           }
         }
+
+        const nowAssert = Date.now();
+        if (nowAssert - lastYtMsAssertRef.current >= 4000) {
+          lastYtMsAssertRef.current = nowAssert;
+          syncMediaSessionRef.current();
+        }
       } catch {
         // ignore transient calls
       }
     }, 250);
   }, [isCurrentYouTube, isPlaying, maybeStartCrossfade]);
 
-  // Background visibility guard: prevent OS/browser tab switch or screen lock from pausing audio or YouTube
+  // Background visibility & focus guard: prevent OS/browser tab switch, minimize, or screen lock from pausing audio or YouTube
   useEffect(() => {
     const resumeActivePlayback = () => {
       if (!isPlayingRef.current || userPausedRef.current) return;
 
+      keepAliveAudioRef.current?.play().catch(() => {});
+
       if (currentTrackRef.current?.playbackRights === 'embed-only') {
-        keepAliveAudioRef.current?.play().catch(() => {});
         ([0, 1] as const).forEach((slotIdx) => {
           const player = ytPlayersRef.current[slotIdx];
           if (player && ytReadyRef.current[slotIdx] && ytDeckTrackIdRef.current[slotIdx]) {
@@ -1002,9 +1137,10 @@ export function PlayerBar({
           activeDeck.play().catch(() => {});
         }
       }
+      syncMediaSessionRef.current();
     };
 
-    const handleVisibilityChange = () => {
+    const handleBackgroundSignal = () => {
       lastVisibilityChangeMsRef.current = Date.now();
       if (!isPlayingRef.current || userPausedRef.current) return;
 
@@ -1012,6 +1148,7 @@ export function PlayerBar({
         resumeActivePlayback();
         window.setTimeout(resumeActivePlayback, 150);
         window.setTimeout(resumeActivePlayback, 500);
+        window.setTimeout(resumeActivePlayback, 1200);
       } else {
         const s = transitionRef.current;
         if (s && s.elapsedMs >= s.durationMs) {
@@ -1022,9 +1159,15 @@ export function PlayerBar({
       }
     };
 
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    document.addEventListener('visibilitychange', handleBackgroundSignal);
+    window.addEventListener('blur', handleBackgroundSignal);
+    window.addEventListener('focus', handleBackgroundSignal);
+    window.addEventListener('pagehide', handleBackgroundSignal);
     return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      document.removeEventListener('visibilitychange', handleBackgroundSignal);
+      window.removeEventListener('blur', handleBackgroundSignal);
+      window.removeEventListener('focus', handleBackgroundSignal);
+      window.removeEventListener('pagehide', handleBackgroundSignal);
     };
   }, [finishTransition, getDeck]);
 
@@ -1085,23 +1228,71 @@ export function PlayerBar({
   handleSeekRef.current = handleSeek;
 
   const handleTogglePlayPause = useCallback(() => {
-    if (isPlayingRef.current) {
-      userPausedRef.current = true;
-    } else {
+    const nextPlaying = !isPlayingRef.current;
+    if (nextPlaying) {
       userPausedRef.current = false;
+      keepAliveAudioRef.current?.play().catch(() => {});
+      if (currentTrackRef.current?.playbackRights === 'embed-only') {
+        const player = ytPlayersRef.current[activeYtDeckIdxRef.current];
+        if (player && ytReadyRef.current[activeYtDeckIdxRef.current]) {
+          try {
+            player.playVideo();
+          } catch {
+            // ignore
+          }
+        }
+      } else {
+        const activeDeck = getDeck(activeDeckIdxRef.current);
+        if (activeDeck && activeDeck.src) {
+          activeDeck.play().catch(() => {});
+        }
+      }
+    } else {
+      userPausedRef.current = true;
     }
     onPlayPause();
-  }, [onPlayPause]);
+  }, [getDeck, onPlayPause]);
 
-  // Register OS / Mobile Lock-Screen Media Session metadata and transport controls
-  useEffect(() => {
-    registerMediaSession(currentTrack, isPlaying, {
+  const syncMediaSession = useCallback(() => {
+    registerMediaSession(currentTrackRef.current, isPlayingRef.current, {
       onPlay: () => {
         userPausedRef.current = false;
+        keepAliveAudioRef.current?.play().catch(() => {});
+        if (currentTrackRef.current?.playbackRights === 'embed-only') {
+          const player = ytPlayersRef.current[activeYtDeckIdxRef.current];
+          if (player && ytReadyRef.current[activeYtDeckIdxRef.current]) {
+            try {
+              player.playVideo();
+            } catch {
+              // ignore
+            }
+          }
+        } else {
+          const activeDeck = getDeck(activeDeckIdxRef.current);
+          if (activeDeck && activeDeck.src) {
+            activeDeck.play().catch(() => {});
+          }
+        }
         onSetPlayingStateRef.current(true);
       },
       onPause: () => {
         userPausedRef.current = true;
+        keepAliveAudioRef.current?.pause();
+        if (currentTrackRef.current?.playbackRights === 'embed-only') {
+          ([0, 1] as const).forEach((slotIdx) => {
+            const player = ytPlayersRef.current[slotIdx];
+            if (player && ytReadyRef.current[slotIdx]) {
+              try {
+                player.pauseVideo();
+              } catch {
+                // ignore
+              }
+            }
+          });
+        } else {
+          getDeck(0)?.pause();
+          getDeck(1)?.pause();
+        }
         onSetPlayingStateRef.current(false);
       },
       onNext: () => {
@@ -1115,7 +1306,15 @@ export function PlayerBar({
       onSeekTo: (timeSec) => handleSeekRef.current(timeSec),
       onSeekBy: (deltaSec) => handleSeekRef.current(currentTimeRef.current + deltaSec),
     });
-  }, [currentTrack, isPlaying]);
+  }, [getDeck]);
+
+  const syncMediaSessionRef = useRef(syncMediaSession);
+  syncMediaSessionRef.current = syncMediaSession;
+
+  // Register OS / Mobile Lock-Screen Media Session metadata and transport controls
+  useEffect(() => {
+    syncMediaSession();
+  }, [currentTrack, isPlaying, syncMediaSession]);
 
   const handleDeckTimeUpdate = (deckIdx: 0 | 1, deckEl: HTMLAudioElement) => {
     if (deckIdx !== activeDeckIdxRef.current) return;
@@ -1139,6 +1338,7 @@ export function PlayerBar({
   };
 
   const handleDeckEnded = (deckIdx: 0 | 1) => {
+    if (!deckTrackIdRef.current[deckIdx]) return;
     const session = transitionRef.current;
     if (
       session &&
@@ -1162,10 +1362,31 @@ export function PlayerBar({
   };
 
   const handleDeckError = (deckIdx: 0 | 1) => {
+    if (!deckTrackIdRef.current[deckIdx]) return;
     if (deckIdx !== activeDeckIdxRef.current) return;
     if (currentTrackRef.current?.streamUrl && !isCurrentYouTube) {
       setAudioError('Stream unavailable; skipping to next track...');
       onPlaybackEndedRef.current();
+    }
+  };
+
+  const handleDeckPause = (deckIdx: 0 | 1, deckEl: HTMLAudioElement) => {
+    if (deckIdx !== activeDeckIdxRef.current) return;
+    if (!deckTrackIdRef.current[deckIdx] || deckEl.ended) return;
+
+    const isBackgroundOrFocusLoss =
+      document.hidden ||
+      !document.hasFocus() ||
+      Date.now() - lastVisibilityChangeMsRef.current < 5000;
+
+    if (isBackgroundOrFocusLoss && !userPausedRef.current && isPlayingRef.current) {
+      deckEl.play().catch(() => {});
+      return;
+    }
+
+    if (!transitionRef.current && isPlayingRef.current && !userPausedRef.current) {
+      userPausedRef.current = true;
+      onSetPlayingStateRef.current(false);
     }
   };
 
@@ -1179,16 +1400,20 @@ export function PlayerBar({
       <audio
         ref={deck0Ref}
         preload="auto"
+        playsInline
         onTimeUpdate={(e) => handleDeckTimeUpdate(0, e.currentTarget)}
         onLoadedMetadata={(e) => handleDeckLoadedMetadata(0, e.currentTarget)}
+        onPause={(e) => handleDeckPause(0, e.currentTarget)}
         onEnded={() => handleDeckEnded(0)}
         onError={() => handleDeckError(0)}
       />
       <audio
         ref={deck1Ref}
         preload="auto"
+        playsInline
         onTimeUpdate={(e) => handleDeckTimeUpdate(1, e.currentTarget)}
         onLoadedMetadata={(e) => handleDeckLoadedMetadata(1, e.currentTarget)}
+        onPause={(e) => handleDeckPause(1, e.currentTarget)}
         onEnded={() => handleDeckEnded(1)}
         onError={() => handleDeckError(1)}
       />
@@ -1241,7 +1466,7 @@ export function PlayerBar({
 
           <div
             className={`relative w-full bg-black transition-all duration-200 ${
-              ytDockMinimized ? 'h-0 overflow-hidden' : 'h-[200px]'
+              ytDockMinimized ? 'h-[1px] opacity-0 pointer-events-none overflow-hidden' : 'h-[200px]'
             }`}
           >
             <div
