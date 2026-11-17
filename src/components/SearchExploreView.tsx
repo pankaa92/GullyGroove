@@ -17,7 +17,7 @@ interface SearchExploreViewProps {
   isPlaying: boolean;
   favorites: Set<string>;
   onPlayTrack: (track: Track, list: Track[]) => void;
-  onToggleFavorite: (trackId: string) => void;
+  onToggleFavorite: (trackId: string, track?: Track) => void;
   onAddToPlaylist: (trackId: string, playlistId: string, track?: Track) => void;
 }
 
@@ -132,7 +132,7 @@ export function SearchExploreView({
           }`}
         >
           <Globe className="w-4 h-4 text-blue-400" />
-          {includeExternal ? 'Live External APIs: On' : 'Include Live External APIs'}
+          {includeExternal ? 'Search Online: On' : 'Search Online: Off'}
         </button>
       </div>
 

@@ -120,13 +120,17 @@ export default function App() {
     }
   }, [favorites]);
 
-  const handleToggleFavorite = (trackId: string) => {
+  const handleToggleFavorite = (trackId: string, discoveredTrack?: Track) => {
+    const wasFavorite = favorites.has(trackId);
     setFavorites((prev) => {
       const next = new Set(prev);
       if (next.has(trackId)) next.delete(trackId);
       else next.add(trackId);
       return next;
     });
+    if (!wasFavorite && discoveredTrack && !tracks.some((t) => t.id === trackId)) {
+      void handleAddToPlaylist(trackId, 'my-playlist', discoveredTrack);
+    }
   };
 
   const playTrackFromList = useCallback(
@@ -226,8 +230,20 @@ export default function App() {
     setActiveTab('playlist-detail');
   };
 
+  const getPlaylistTracks = useCallback(
+    (playlistId: string) => {
+      if (playlistId === 'my-playlist') {
+        return tracks.filter(
+          (t) => favorites.has(t.id) || t.playlistIds.includes('my-playlist')
+        );
+      }
+      return tracks.filter((t) => t.playlistIds.includes(playlistId));
+    },
+    [tracks, favorites]
+  );
+
   const quickPlayPlaylist = (playlistId: string) => {
-    const plTracks = tracks.filter((t) => t.playlistIds.includes(playlistId));
+    const plTracks = getPlaylistTracks(playlistId);
     if (plTracks.length > 0) {
       playTrackFromList(plTracks[0], plTracks);
     }
@@ -253,6 +269,14 @@ export default function App() {
     playlistId: string,
     discoveredTrack?: Track
   ) => {
+    if (playlistId === 'my-playlist') {
+      setFavorites((prev) => {
+        if (prev.has(trackId)) return prev;
+        const next = new Set(prev);
+        next.add(trackId);
+        return next;
+      });
+    }
     const data = await assignTrackToPlaylist(playlistId, trackId, discoveredTrack);
     if (!data) return;
     setTracks((prev) => {
@@ -265,16 +289,30 @@ export default function App() {
     setFacets(data.facets);
   };
 
+  const playlistsWithLiveCounts = useMemo(() => {
+    return playlists.map((pl) => {
+      if (pl.id !== 'my-playlist') return pl;
+      const myTracks = getPlaylistTracks('my-playlist');
+      const totalDurationSec = myTracks.reduce((acc, t) => acc + t.durationSec, 0);
+      return {
+        ...pl,
+        trackCount: myTracks.length,
+        totalDurationSec,
+      };
+    });
+  }, [playlists, getPlaylistTracks]);
+
   const filteredPlaylists = useMemo(() => {
-    if (regionFilter === 'All') return playlists;
-    return playlists.filter((pl) => pl.region === regionFilter);
-  }, [playlists, regionFilter]);
+    if (regionFilter === 'All') return playlistsWithLiveCounts;
+    return playlistsWithLiveCounts.filter((pl) => pl.region === regionFilter);
+  }, [playlistsWithLiveCounts, regionFilter]);
 
   const activePlaylist = useMemo(() => {
-    const pl = playlists.find((p) => p.id === selectedPlaylistId) || null;
-    const plTracks = pl ? tracks.filter((t) => t.playlistIds.includes(pl.id)) : [];
+    const pl =
+      playlistsWithLiveCounts.find((p) => p.id === selectedPlaylistId) || null;
+    const plTracks = pl ? getPlaylistTracks(pl.id) : [];
     return { playlist: pl, tracks: plTracks };
-  }, [selectedPlaylistId, playlists, tracks]);
+  }, [selectedPlaylistId, playlistsWithLiveCounts, getPlaylistTracks]);
 
   const vaultTracks = useMemo(() => tracks.filter((t) => t.isUserAdded), [tracks]);
   const studioTracks = useMemo(() => tracks.filter((t) => !t.isUserAdded), [tracks]);
@@ -357,12 +395,12 @@ export default function App() {
               Curated Playlists
             </span>
             <span className="text-[11px] font-mono-tabular text-slate-500">
-              {playlists.length}
+              {playlistsWithLiveCounts.length}
             </span>
           </div>
 
           <div className="flex-1 overflow-y-auto space-y-0.5 pr-1">
-            {playlists.map((pl) => {
+            {playlistsWithLiveCounts.map((pl) => {
               const selected =
                 activeTab === 'playlist-detail' && selectedPlaylistId === pl.id;
               return (
@@ -503,7 +541,7 @@ export default function App() {
                         Built for Every Indian Road, Mehfil & Night.
                       </h1>
                       <p className="text-xs sm:text-base text-slate-300 leading-relaxed max-w-xl">
-                        Stream curated Bollywood, Punjabi, Highway, Sufi, 90s Classics, DJ & Love Mashups with 8-second gapless crossfade playback.
+                        Stream Ad-free Music, Instant playback and seamless crossfade transitions.
                       </p>
 
                       <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2.5 sm:gap-3 pt-1 sm:pt-2">
@@ -521,7 +559,7 @@ export default function App() {
                           onClick={() => setActiveTab('playlists')}
                           className="inline-flex h-11 items-center justify-center gap-2 px-5 rounded-xl bg-white/[0.07] hover:bg-white/[0.12] border border-white/10 text-sm font-medium text-white transition-colors whitespace-nowrap shrink-0"
                         >
-                          Browse All {playlists.length} Playlists
+                          Browse All {playlistsWithLiveCounts.length} Playlists
                         </button>
                       </div>
                     </div>
@@ -535,7 +573,7 @@ export default function App() {
                           Curated for India & Beyond
                         </h2>
                         <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
-                          From NH-48 Bus Driver classics and Saloon grooves to 90s hits & DJ mashups.
+                          From Newly Added Hindi, Nepali, Bhojpuri & North East gems to South hits, Salon grooves & DJ mashups.
                         </p>
                       </div>
 
@@ -607,7 +645,7 @@ export default function App() {
                             isCurrent={currentTrack?.id === track.id}
                             isPlaying={isPlaying}
                             isFavorite={favorites.has(track.id)}
-                            playlists={playlists}
+                            playlists={playlistsWithLiveCounts}
                             onPlayToggle={(t) => playTrackFromList(t, tracks)}
                             onToggleFavorite={handleToggleFavorite}
                             onAddToPlaylist={handleAddToPlaylist}
@@ -767,7 +805,7 @@ export default function App() {
                           isCurrent={currentTrack?.id === track.id}
                           isPlaying={isPlaying}
                           isFavorite={favorites.has(track.id)}
-                          playlists={playlists}
+                          playlists={playlistsWithLiveCounts}
                           onPlayToggle={(t) => playTrackFromList(t, activePlaylist.tracks)}
                           onToggleFavorite={handleToggleFavorite}
                           onAddToPlaylist={handleAddToPlaylist}
@@ -781,7 +819,7 @@ export default function App() {
               {/* SEARCH & ADVANCED FILTER VIEW */}
               {activeTab === 'search' ? (
                 <SearchExploreView
-                  playlists={playlists}
+                  playlists={playlistsWithLiveCounts}
                   providers={providers}
                   facets={facets}
                   currentTrackId={currentTrack?.id || null}
@@ -799,7 +837,7 @@ export default function App() {
                   providers={providers}
                   vaultTracks={vaultTracks}
                   studioTracks={studioTracks}
-                  playlists={playlists}
+                  playlists={playlistsWithLiveCounts}
                   currentTrackId={currentTrack?.id || null}
                   isPlaying={isPlaying}
                   onOpenAddModal={() => setAddModalOpen(true)}
@@ -895,7 +933,7 @@ export default function App() {
       {/* Register Authorised Media Track Modal */}
       <AddTrackModal
         open={addModalOpen}
-        playlists={playlists}
+        playlists={playlistsWithLiveCounts}
         onClose={() => setAddModalOpen(false)}
         onCreated={handleCreateVaultTrack}
       />

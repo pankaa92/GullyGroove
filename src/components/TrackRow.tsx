@@ -12,7 +12,7 @@ interface TrackRowProps {
   isFavorite: boolean;
   playlists: PlaylistWithStats[];
   onPlayToggle: (track: Track) => void;
-  onToggleFavorite: (trackId: string) => void;
+  onToggleFavorite: (trackId: string, track?: Track) => void;
   onAddToPlaylist?: (trackId: string, playlistId: string, track?: Track) => void;
   showAlbum?: boolean;
 }
@@ -138,7 +138,7 @@ export function TrackRow({
       <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
         <button
           type="button"
-          onClick={() => onToggleFavorite(track.id)}
+          onClick={() => onToggleFavorite(track.id, track)}
           aria-label={isFavorite ? `Remove ${track.title} from favorites` : `Save ${track.title}`}
           className={`flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
             isFavorite
@@ -170,7 +170,9 @@ export function TrackRow({
                 </p>
                 <div className="max-h-48 overflow-y-auto space-y-0.5">
                   {playlists.map((pl) => {
-                    const alreadyIn = track.playlistIds.includes(pl.id);
+                    const alreadyIn =
+                      track.playlistIds.includes(pl.id) ||
+                      (pl.id === 'my-playlist' && isFavorite);
                     return (
                       <button
                         key={pl.id}
