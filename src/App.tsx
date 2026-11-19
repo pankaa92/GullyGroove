@@ -573,7 +573,7 @@ export default function App() {
                           Curated for India & Beyond
                         </h2>
                         <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
-                          From Newly Added Hindi, Nepali, Bhojpuri & North East gems to South hits, Salon grooves & DJ mashups.
+                          From Top Hindi Songs, 2 AM Arijit &amp; Shadi Sangeet to Nepali, Bhojpuri, North East &amp; South hits.
                         </p>
                       </div>
 
