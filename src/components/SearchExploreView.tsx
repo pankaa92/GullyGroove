@@ -1,5 +1,5 @@
-import { Globe, RotateCcw, Search } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { AudioLines, Globe, RotateCcw, Search } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { searchCatalog } from '../services/clientCatalog';
 import type { PlaylistWithStats, ProviderStatus, Track } from '../types/music';
 import { TrackRow } from './TrackRow';
@@ -39,6 +39,7 @@ export function SearchExploreView({
   const [language, setLanguage] = useState('all');
   const [providerId, setProviderId] = useState('all');
   const [includeExternal, setIncludeExternal] = useState(true);
+  const [directAudioOnly, setDirectAudioOnly] = useState(false);
 
   const [localTracks, setLocalTracks] = useState<Track[]>([]);
   const [externalTracks, setExternalTracks] = useState<Track[]>([]);
@@ -80,13 +81,24 @@ export function SearchExploreView({
     };
   }, [query, artist, album, genre, language, providerId, includeExternal]);
 
+  const displayedLocalTracks = useMemo(
+    () => (directAudioOnly ? localTracks.filter((t) => Boolean(t.streamUrl)) : localTracks),
+    [localTracks, directAudioOnly]
+  );
+
+  const displayedExternalTracks = useMemo(
+    () => (directAudioOnly ? externalTracks.filter((t) => Boolean(t.streamUrl)) : externalTracks),
+    [externalTracks, directAudioOnly]
+  );
+
   const hasActiveFilters =
     Boolean(query.trim()) ||
     artist !== 'all' ||
     album !== 'all' ||
     genre !== 'all' ||
     language !== 'all' ||
-    providerId !== 'all';
+    providerId !== 'all' ||
+    directAudioOnly;
 
   const resetFilters = () => {
     setQuery('');
@@ -95,45 +107,61 @@ export function SearchExploreView({
     setGenre('all');
     setLanguage('all');
     setProviderId('all');
+    setDirectAudioOnly(false);
   };
 
   return (
-    <section className="space-y-6">
+    <section className="space-y-6 gg-view-enter">
       <header className="space-y-1">
         <h1 className="font-display text-2xl sm:text-3xl font-bold text-white tracking-tight">
           Search & Discovery
         </h1>
         <p className="text-sm text-slate-400">
-          Filter Indian and international tracks by artist, album, genre, language, or authorised provider.
+          Filter Indian and international tracks by artist, album, genre, language, or ad-free direct stream.
         </p>
       </header>
 
-      {/* Search Bar & Modular External Discovery Toggle */}
-      <div className="flex flex-col md:flex-row gap-3">
+      {/* Search Bar & Discovery Toggles */}
+      <div className="flex flex-col md:flex-row gap-2.5 sm:gap-3">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search song, artist, or album (e.g. Atif Aslam, Namo Namo)..."
+            placeholder="Search song, artist, or album (e.g. Arijit Singh, Kumar Sanu)..."
             aria-label="Search music catalog"
-            className="w-full h-11 rounded-xl bg-[#12121A] border border-white/10 pl-10 pr-4 text-base sm:text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
+            className="w-full h-11 rounded-xl bg-[#12121B] border border-white/10 pl-10 pr-4 text-base sm:text-sm text-white placeholder:text-slate-500 transition-colors focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
           />
         </div>
 
-        <button
-          type="button"
-          onClick={() => setIncludeExternal((prev) => !prev)}
-          className={`inline-flex h-11 items-center justify-center gap-2 px-4 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 border transition-colors ${
-            includeExternal
-              ? 'bg-gradient-to-r from-violet-600/25 to-blue-500/25 border-blue-400/50 text-white'
-              : 'bg-[#12121A] border-white/10 text-slate-300 hover:border-white/25'
-          }`}
-        >
-          <Globe className="w-4 h-4 text-blue-400" />
-          {includeExternal ? 'Search Online: On' : 'Search Online: Off'}
-        </button>
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => setDirectAudioOnly((prev) => !prev)}
+            className={`flex-1 sm:flex-none inline-flex h-11 items-center justify-center gap-2 px-4 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 border transition-all duration-150 ${
+              directAudioOnly
+                ? 'bg-gradient-to-r from-violet-600 to-blue-500 border-violet-400/50 text-white shadow-lg shadow-violet-950/50'
+                : 'bg-[#12121B] border-white/10 text-slate-300 hover:border-violet-500/40 hover:text-white'
+            }`}
+          >
+            <AudioLines className="w-4 h-4" />
+            Direct Audio Only (Ad-Free)
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIncludeExternal((prev) => !prev)}
+            className={`flex-1 sm:flex-none inline-flex h-11 items-center justify-center gap-2 px-4 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 border transition-all duration-150 ${
+              includeExternal
+                ? 'bg-gradient-to-r from-violet-600/25 to-blue-500/25 border-blue-400/50 text-white'
+                : 'bg-[#12121B] border-white/10 text-slate-300 hover:border-white/25'
+            }`}
+          >
+            <Globe className="w-4 h-4 text-blue-400" />
+            {includeExternal ? 'Search Online: On' : 'Search Online: Off'}
+          </button>
+        </div>
       </div>
 
       {/* Advanced Facet Filters */}
@@ -237,9 +265,9 @@ export function SearchExploreView({
       {hasActiveFilters ? (
         <div className="flex items-center justify-between text-xs text-slate-400">
           <span className="font-mono-tabular">
-            Showing {localTracks.length} studio/vault tracks
+            Showing {displayedLocalTracks.length} studio/vault tracks
             {includeExternal && query.trim().length >= 2
-              ? ` · ${externalTracks.length} external discovery matches`
+              ? ` · ${displayedExternalTracks.length} external discovery matches`
               : ''}
           </span>
           <button
@@ -259,7 +287,7 @@ export function SearchExploreView({
         </div>
       ) : null}
 
-      {/* Live External Discovery Results (shown first when local playlists have no match) */}
+      {/* Live External Discovery Results */}
       {includeExternal && query.trim().length >= 2 ? (
         <div className="space-y-3">
           <div className="flex items-center justify-between border-b border-white/[0.08] pb-2">
@@ -272,7 +300,7 @@ export function SearchExploreView({
               </p>
             </div>
             <span className="text-xs font-mono-tabular text-slate-500">
-              {externalTracks.length} results
+              {displayedExternalTracks.length} results
             </span>
           </div>
 
@@ -285,13 +313,13 @@ export function SearchExploreView({
                 />
               ))}
             </div>
-          ) : externalTracks.length === 0 ? (
+          ) : displayedExternalTracks.length === 0 ? (
             <p className="text-xs text-slate-500 py-3">
               No external tracks found for “{query}”.
             </p>
           ) : (
             <div className="divide-y divide-white/[0.04]">
-              {externalTracks.map((track, idx) => (
+              {displayedExternalTracks.map((track, idx) => (
                 <TrackRow
                   key={track.id}
                   track={track}
@@ -300,7 +328,7 @@ export function SearchExploreView({
                   isPlaying={isPlaying}
                   isFavorite={favorites.has(track.id)}
                   playlists={playlists}
-                  onPlayToggle={(t) => onPlayTrack(t, externalTracks)}
+                  onPlayToggle={(t) => onPlayTrack(t, displayedExternalTracks)}
                   onToggleFavorite={onToggleFavorite}
                   onAddToPlaylist={onAddToPlaylist}
                 />
@@ -311,14 +339,14 @@ export function SearchExploreView({
       ) : null}
 
       {/* Curated Catalogue Results */}
-      {localTracks.length > 0 || !includeExternal || query.trim().length < 2 ? (
+      {displayedLocalTracks.length > 0 || !includeExternal || query.trim().length < 2 ? (
         <div className="space-y-3 pt-1">
           <div className="flex items-center justify-between border-b border-white/[0.08] pb-2">
             <h2 className="font-display text-base font-semibold text-white">
-              Curated Playlists
+              {directAudioOnly ? 'Ad-Free Direct Audio Tracks' : 'Curated Catalogue'}
             </h2>
             <span className="text-xs font-mono-tabular text-slate-500">
-              {localTracks.length} tracks
+              {displayedLocalTracks.length} tracks
             </span>
           </div>
 
@@ -331,13 +359,13 @@ export function SearchExploreView({
                 />
               ))}
             </div>
-          ) : localTracks.length === 0 ? (
-            <div className="py-12 text-center rounded-xl bg-[#12121A] border border-white/[0.06]">
+          ) : displayedLocalTracks.length === 0 ? (
+            <div className="py-12 text-center rounded-2xl bg-[#12121B] border border-white/[0.06]">
               <p className="text-sm font-medium text-slate-300">
-                No curated tracks matched those filters.
+                No tracks matched those filters.
               </p>
               <p className="mt-1 text-xs text-slate-500">
-                Try clearing one of the artist, album, or genre filters, or type a song/artist name above.
+                Try clearing one of the filters or turning off Direct Audio Only.
               </p>
               <button
                 type="button"
@@ -349,7 +377,7 @@ export function SearchExploreView({
             </div>
           ) : (
             <div className="divide-y divide-white/[0.04]">
-              {localTracks.map((track, idx) => (
+              {displayedLocalTracks.map((track, idx) => (
                 <TrackRow
                   key={track.id}
                   track={track}
@@ -358,7 +386,7 @@ export function SearchExploreView({
                   isPlaying={isPlaying}
                   isFavorite={favorites.has(track.id)}
                   playlists={playlists}
-                  onPlayToggle={(t) => onPlayTrack(t, localTracks)}
+                  onPlayToggle={(t) => onPlayTrack(t, displayedLocalTracks)}
                   onToggleFavorite={onToggleFavorite}
                   onAddToPlaylist={onAddToPlaylist}
                 />

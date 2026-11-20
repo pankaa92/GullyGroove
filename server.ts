@@ -181,6 +181,97 @@ async function startServer() {
     res.json({ ok: true });
   });
 
+  const songRequests: Array<{
+    id: string;
+    songName: string;
+    youtubeUrl: string;
+    targetEmail: string;
+    createdAt: string;
+  }> = [];
+
+  // Song Request submission endpoint (records request and sends via Resend if configured)
+  app.post('/api/song-requests', async (req, res) => {
+    const body = req.body as { songName?: string; youtubeUrl?: string };
+    const songName = typeof body.songName === 'string' ? body.songName.trim() : '';
+    const youtubeUrl = typeof body.youtubeUrl === 'string' ? body.youtubeUrl.trim() : '';
+
+    if (!songName) {
+      res.status(400).json({ error: 'Song name is required.' });
+      return;
+    }
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(youtubeUrl);
+    } catch {
+      res.status(400).json({ error: 'Please enter a valid YouTube link.' });
+      return;
+    }
+
+    if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
+      res.status(400).json({ error: 'YouTube link must start with https:// or http://' });
+      return;
+    }
+
+    const host = parsedUrl.hostname.toLowerCase();
+    const isYouTubeHost =
+      host === 'youtu.be' ||
+      host === 'youtube.com' ||
+      host.endsWith('.youtube.com');
+
+    if (!isYouTubeHost) {
+      res.status(400).json({ error: 'Please enter a valid YouTube URL (youtube.com or youtu.be).' });
+      return;
+    }
+
+    const record = {
+      id: `req-${Date.now()}`,
+      songName,
+      youtubeUrl,
+      targetEmail: 'iampank3@gmail.com',
+      createdAt: new Date().toISOString(),
+    };
+    songRequests.unshift(record);
+    if (songRequests.length > 200) {
+      songRequests.length = 200;
+    }
+
+    const resendKey = process.env.RESEND_API_KEY?.trim();
+    if (resendKey) {
+      try {
+        const emailRes = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${resendKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            from: process.env.RESEND_FROM || 'GullyGroove <onboarding@resend.dev>',
+            to: ['iampank3@gmail.com'],
+            subject: `GullyGroove Song Request: ${songName}`,
+            text: `New song request submitted on GullyGroove:\n\nSong Name: ${songName}\nYouTube Link: ${youtubeUrl}\nSubmitted At: ${record.createdAt}`,
+          }),
+        });
+        if (emailRes.ok) {
+          res.status(201).json({
+            ok: true,
+            id: record.id,
+            deliveredVia: 'server-email',
+          });
+          return;
+        }
+      } catch {
+        // Fall through to client FormSubmit relay
+      }
+    }
+
+    res.status(201).json({
+      ok: true,
+      id: record.id,
+      deliveredVia: 'server-recorded',
+    });
+  });
+
   // Audius Open Streaming Proxy Endpoint (forwards byte-ranges cleanly to HTML5 audio)
   app.get('/api/audius/stream/:audiusId', async (req, res) => {
     const audiusId = req.params.audiusId.replace(/[^a-zA-Z0-9_-]/g, '');

@@ -42,10 +42,10 @@ export function TrackRow({
 
   return (
     <div
-      className={`group relative flex items-center gap-2 sm:gap-4 px-2 sm:px-3 py-2 sm:py-2.5 rounded-lg transition-colors duration-150 ${
+      className={`group relative flex items-center gap-2 sm:gap-4 px-2 sm:px-3 py-2 sm:py-2.5 rounded-xl transition-colors duration-150 ${
         isCurrent
-          ? 'bg-violet-500/12 border border-violet-500/30'
-          : 'border border-transparent hover:bg-white/[0.04]'
+          ? 'bg-gradient-to-r from-violet-600/14 via-violet-500/10 to-blue-500/10 border border-violet-500/30'
+          : 'border border-transparent hover:bg-white/[0.05]'
       }`}
     >
       {/* Index / Play button */}
@@ -53,10 +53,17 @@ export function TrackRow({
         type="button"
         onClick={() => onPlayToggle(track)}
         aria-label={isCurrent && isPlaying ? `Pause ${track.title}` : `Play ${track.title}`}
-        className="flex h-10 w-7 sm:w-8 shrink-0 items-center justify-center text-xs font-mono-tabular text-slate-400 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+        className="flex h-10 w-8 shrink-0 items-center justify-center text-xs font-mono-tabular text-slate-400 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-lg"
       >
         {isCurrent && isPlaying ? (
-          <Pause className="w-4 h-4 text-violet-400 fill-current" />
+          <>
+            <span className="flex items-end gap-[2px] h-3.5 group-hover:hidden" aria-hidden="true">
+              <span className="w-[2.5px] h-full rounded-full bg-violet-400 gg-eq-bar" />
+              <span className="w-[2.5px] h-full rounded-full bg-blue-400 gg-eq-bar gg-eq-bar-delay-1" />
+              <span className="w-[2.5px] h-full rounded-full bg-violet-300 gg-eq-bar gg-eq-bar-delay-2" />
+            </span>
+            <Pause className="hidden w-4 h-4 text-violet-300 fill-current group-hover:block" />
+          </>
         ) : (
           <>
             <span className="group-hover:hidden">

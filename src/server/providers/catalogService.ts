@@ -15,10 +15,14 @@ class CatalogService {
   private tracks: Track[] = INITIAL_TRACKS.map((t) => ({
     ...t,
     playlistIds: Array.from(
-      new Set([
-        'gapless-playback',
-        ...t.playlistIds.filter((id) => id !== 'relaxing-music'),
-      ])
+      new Set(
+        t.playlistIds.filter(
+          (id) =>
+            id !== 'relaxing-music' &&
+            id !== 'gapless-playback' &&
+            id !== 'trending-international'
+        )
+      )
     ),
   }));
   private playlists = [...INITIAL_PLAYLISTS];
@@ -173,7 +177,7 @@ class CatalogService {
       streamUrl: input.streamUrl.trim(),
       attribution: input.attribution?.trim() || `${input.artist.trim()} (${input.licenseType})`,
       playlistIds: Array.from(
-        new Set(['gapless-playback', input.playlistId || 'top-50-hindi'])
+        new Set([input.playlistId || 'top-50-hindi'])
       ),
       plays: 1,
       isUserAdded: true,
@@ -202,17 +206,12 @@ class CatalogService {
     if (!track && discoveredTrack && discoveredTrack.id === trackId) {
       track = {
         ...discoveredTrack,
-        playlistIds: Array.from(
-          new Set(['gapless-playback', ...(discoveredTrack.playlistIds || [])])
-        ),
+        playlistIds: Array.from(new Set(discoveredTrack.playlistIds || [])),
       };
       this.tracks.unshift(track);
     }
     if (!track) return null;
 
-    if (!track.playlistIds.includes('gapless-playback')) {
-      track.playlistIds.push('gapless-playback');
-    }
     if (!track.playlistIds.includes(playlistId)) {
       track.playlistIds.push(playlistId);
     }

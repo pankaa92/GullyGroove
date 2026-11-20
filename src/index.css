@@ -28,6 +28,52 @@
   }
 }
 
+/* Midnight Violet-Blue studio stage wash */
+.gg-studio-ambient {
+  background-image:
+    radial-gradient(62% 45% at 18% 0%, rgba(124, 58, 237, 0.22) 0%, rgba(124, 58, 237, 0) 70%),
+    radial-gradient(48% 40% at 88% 4%, rgba(59, 130, 246, 0.16) 0%, rgba(59, 130, 246, 0) 70%);
+}
+
+/* Compositor-only smooth view entrance transition */
+@keyframes ggViewEnter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.gg-view-enter {
+  animation: ggViewEnter 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Live audio equalizer bars for the currently playing track row */
+@keyframes ggEqPulse {
+  0%, 100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+.gg-eq-bar {
+  transform-origin: bottom;
+  animation: ggEqPulse 760ms cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.gg-eq-bar-delay-1 {
+  animation-delay: 140ms;
+}
+
+.gg-eq-bar-delay-2 {
+  animation-delay: 280ms;
+}
+
 /* Custom subtle dark scrollbar */
 ::-webkit-scrollbar {
   width: 6px;

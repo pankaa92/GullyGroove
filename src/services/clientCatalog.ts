@@ -48,10 +48,14 @@ function normalizeStaticTrack(track: Track): Track {
     ...track,
     streamUrl: track.streamUrl ? toDirectAudiusStreamUrl(track.streamUrl) : '',
     playlistIds: Array.from(
-      new Set([
-        'gapless-playback',
-        ...(track.playlistIds || []).filter((id) => id !== 'relaxing-music'),
-      ])
+      new Set(
+        (track.playlistIds || []).filter(
+          (id) =>
+            id !== 'relaxing-music' &&
+            id !== 'gapless-playback' &&
+            id !== 'trending-international'
+        )
+      )
     ),
   };
 }
@@ -86,7 +90,9 @@ function getStaticTracks(): Track[] {
     const normalized = normalizeStaticTrack(t);
     const extraPlaylists = assignments[normalized.id] || [];
     normalized.playlistIds = Array.from(
-      new Set(['gapless-playback', ...normalized.playlistIds, ...extraPlaylists])
+      new Set([...normalized.playlistIds, ...extraPlaylists].filter(
+        (id) => id !== 'gapless-playback' && id !== 'trending-international'
+      ))
     );
     map.set(normalized.id, normalized);
   }
@@ -250,7 +256,7 @@ async function searchAudiusClient(query: string, limit = 10): Promise<Track[]> {
         )}/stream?app_name=GullyGroove`,
         externalUrl: item.permalink ? `https://audius.co${item.permalink}` : 'https://audius.co',
         attribution: `${item.user?.name || 'Artist'} via Audius`,
-        playlistIds: ['gapless-playback'],
+        playlistIds: [],
         plays: Number(item.play_count) || 12000,
       }));
   } catch {
@@ -302,7 +308,7 @@ async function searchItunesClient(query: string, limit = 12): Promise<Track[]> {
         streamUrl: item.previewUrl || '',
         externalUrl: item.trackViewUrl,
         attribution: `${item.artistName || 'Artist'} via Apple Music Preview`,
-        playlistIds: ['gapless-playback'],
+        playlistIds: [],
         plays: 500000,
       }));
   } catch {
@@ -419,7 +425,7 @@ export async function assignTrackToPlaylist(
   if (!targetTrack) return null;
 
   const updatedPlaylists = Array.from(
-    new Set(['gapless-playback', ...(targetTrack.playlistIds || []), playlistId])
+    new Set([...(targetTrack.playlistIds || []), playlistId])
   );
   assignments[trackId] = updatedPlaylists;
   try {
@@ -486,7 +492,7 @@ export async function createVaultTrack(input: NewAuthorisedTrackInput): Promise<
     streamUrl: input.streamUrl.trim(),
     attribution: input.attribution?.trim() || `${input.artist.trim()} (${input.licenseType})`,
     playlistIds: Array.from(
-      new Set(['gapless-playback', input.playlistId || 'top-50-hindi'])
+      new Set([input.playlistId || 'top-50-hindi'])
     ),
     plays: 1,
     isUserAdded: true,
@@ -548,4 +554,123 @@ export function recordTrackPlay(trackId: string): void {
   fetch(`/api/tracks/${encodeURIComponent(trackId)}/play`, { method: 'POST' }).catch(
     () => {}
   );
+}
+
+export interface SongRequestResult {
+  ok: boolean;
+  status: 'sent' | 'activation-required' | 'fallback-mailto';
+  message: string;
+  mailtoUrl: string;
+}
+
+export const SONG_REQUEST_EMAIL = 'iampank3@gmail.com';
+
+export function buildSongRequestMailto(songName: string, youtubeUrl: string): string {
+  const subject = `GullyGroove Song Request: ${songName}`;
+  const body = `Hi,\n\nPlease add this song to GullyGroove:\n\nSong Name: ${songName}\nYouTube Link: ${youtubeUrl}\n`;
+  return `mailto:${SONG_REQUEST_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
+export async function submitSongRequest(input: {
+  songName: string;
+  youtubeUrl: string;
+}): Promise<SongRequestResult> {
+  const songName = input.songName.trim();
+  const youtubeUrl = input.youtubeUrl.trim();
+  const mailtoUrl = buildSongRequestMailto(songName, youtubeUrl);
+
+  let serverRecorded = false;
+  if (backendDetected !== false) {
+    try {
+      const res = await fetch('/api/song-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ songName, youtubeUrl }),
+      });
+      if (isJsonResponse(res)) {
+        backendDetected = true;
+        const data = (await res.json()) as {
+          ok?: boolean;
+          error?: string;
+          deliveredVia?: string;
+        };
+        if (!res.ok) {
+          throw new Error(data.error || 'Unable to submit song request.');
+        }
+        if (data.deliveredVia === 'server-email') {
+          return {
+            ok: true,
+            status: 'sent',
+            message: `Your song request has been sent to ${SONG_REQUEST_EMAIL}.`,
+            mailtoUrl,
+          };
+        }
+        serverRecorded = Boolean(data.ok);
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('Please enter')) {
+        throw err;
+      }
+      // Static fallback or relay attempt below
+    }
+  }
+
+  try {
+    const relayRes = await fetch(`https://formsubmit.co/ajax/${SONG_REQUEST_EMAIL}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        _subject: `GullyGroove Song Request: ${songName}`,
+        song_name: songName,
+        youtube_link: youtubeUrl,
+        source: 'GullyGroove Music App',
+        _template: 'table',
+        _captcha: 'false',
+      }),
+    });
+
+    const relayJson = (await relayRes.json().catch(() => ({}))) as {
+      success?: boolean | string;
+      message?: string;
+    };
+
+    const succeeded =
+      relayRes.ok &&
+      (relayJson.success === true || relayJson.success === 'true');
+
+    if (succeeded) {
+      return {
+        ok: true,
+        status: 'sent',
+        message: `Your song request has been sent to ${SONG_REQUEST_EMAIL}.`,
+        mailtoUrl,
+      };
+    }
+
+    if (
+      typeof relayJson.message === 'string' &&
+      relayJson.message.toLowerCase().includes('activat')
+    ) {
+      return {
+        ok: true,
+        status: 'activation-required',
+        message: `Request submitted! Check ${SONG_REQUEST_EMAIL} once to confirm the FormSubmit activation link, or click "Open in Email App" below to send right away.`,
+        mailtoUrl,
+      };
+    }
+  } catch {
+    // Network / CSP fallback below
+  }
+
+  return {
+    ok: serverRecorded,
+    status: 'fallback-mailto',
+    message: serverRecorded
+      ? `Your request was saved on the server. Click "Open in Email App" below to send it directly to ${SONG_REQUEST_EMAIL}.`
+      : `Click "Open in Email App" below to send your song request directly to ${SONG_REQUEST_EMAIL}.`,
+    mailtoUrl,
+  };
 }
