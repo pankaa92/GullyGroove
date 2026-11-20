@@ -589,16 +589,6 @@ export default function App() {
               <Plus className="w-3.5 h-3.5" />
               <span>Tune Request</span>
             </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('search')}
-              aria-label="Open Search and Ad-Free Filter"
-              className="inline-flex h-9 items-center gap-1.5 px-3 rounded-xl bg-[#14141F] border border-white/[0.08] text-xs font-medium text-slate-200 hover:border-violet-500/40 whitespace-nowrap shrink-0"
-            >
-              <Search className="w-3.5 h-3.5 text-violet-400" />
-              <span>Search</span>
-            </button>
           </div>
         </header>
 
@@ -1111,10 +1101,10 @@ export default function App() {
         </main>
       </div>
 
-      {/* Mobile Bottom Navigation Bar (56px, 4 thumb-zone tabs) */}
+      {/* Mobile Bottom Navigation Bar (56px, 3 thumb-zone tabs) */}
       <nav
         aria-label="Mobile Navigation"
-        className="lg:hidden fixed bottom-0 left-0 right-0 z-40 h-14 bg-[#0B0B11]/95 backdrop-blur-xl border-t border-white/[0.08] grid grid-cols-4 items-center"
+        className="lg:hidden fixed bottom-0 left-0 right-0 z-40 h-14 bg-[#0B0B11]/95 backdrop-blur-xl border-t border-white/[0.08] grid grid-cols-3 items-center"
       >
         <button
           type="button"
@@ -1147,16 +1137,6 @@ export default function App() {
         >
           <Search className="w-5 h-5" />
           <span>Search</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('vault')}
-          className={`flex flex-col items-center justify-center h-full gap-0.5 text-[10px] font-medium transition-colors ${
-            activeTab === 'vault' ? 'text-violet-400' : 'text-slate-400'
-          }`}
-        >
-          <FolderPlus className="w-5 h-5" />
-          <span>Vault</span>
         </button>
       </nav>
 
