@@ -244,11 +244,6 @@ export function PlayerBar({
   const [isDesktopViewport, setIsDesktopViewport] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth >= 1024 : true
   );
-  const [isCoarsePointer, setIsCoarsePointer] = useState(() =>
-    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-      ? window.matchMedia('(pointer: coarse)').matches
-      : false
-  );
 
   const transitionRef = useRef<TransitionSession | null>(null);
   const transitionLockFromIdRef = useRef<string>('');
@@ -373,9 +368,6 @@ export function PlayerBar({
   useEffect(() => {
     const syncViewport = () => {
       setIsDesktopViewport(window.innerWidth >= 1024);
-      if (typeof window.matchMedia === 'function') {
-        setIsCoarsePointer(window.matchMedia('(pointer: coarse)').matches);
-      }
     };
     syncViewport();
     window.addEventListener('resize', syncViewport);
@@ -2303,7 +2295,7 @@ export function PlayerBar({
               {/* Center Boombox Stage + Track Info + Waveform + Transport (ALWAYS visible even when Queue/Recent is open) */}
               <div className="p-3 sm:p-5 space-y-4">
                   {/* Boombox Frame: Left EQ + Center Video/Artwork Stage + Right EQ */}
-                  <div className="flex items-stretch gap-2.5 sm:gap-3.5 rounded-2xl bg-[#0B0B13] border border-white/[0.07] p-2 sm:p-3">
+                  <div className="flex items-stretch gap-1.5 sm:gap-3.5 rounded-2xl bg-[#0B0B13] border border-white/[0.07] p-1.5 sm:p-3">
                     <BoomboxEqRack side="left" isPlaying={isPlaying} />
 
                     {/* Center Stage Slot (YouTube IFrame docks directly over this box!) */}
@@ -2579,12 +2571,6 @@ export function PlayerBar({
                       />
                     </div>
                   </div>
-
-                  {isCoarsePointer ? (
-                    <p className="text-[11px] text-center text-slate-500">
-                      Device hardware keys also control system media volume.
-                    </p>
-                  ) : null}
 
                   {/* Bottom Studio Strip: Missing Song Request + Quick Queue / Recent Counts */}
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/[0.07] text-xs">

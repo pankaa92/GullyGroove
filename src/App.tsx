@@ -892,29 +892,6 @@ export default function App() {
                             : `Showing ${filteredPlaylists.length} vibes · ${totalMatchingLanguageTracks} songs in ${languageFilter}`}
                         </p>
                       </div>
-
-                      <div
-                        className="inline-flex items-center gap-1 p-1 rounded-xl bg-[#12121B] border border-white/[0.08] self-start max-w-full overflow-x-auto"
-                        role="tablist"
-                        aria-label="Filter playlists by region"
-                      >
-                        {(['All', 'India', 'Pan-India', 'Global'] as const).map((region) => (
-                          <button
-                            key={region}
-                            type="button"
-                            role="tab"
-                            aria-selected={regionFilter === region}
-                            onClick={() => setRegionFilter(region)}
-                            className={`px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap shrink-0 transition-colors ${
-                              regionFilter === region
-                                ? 'bg-gradient-to-r from-violet-600 to-blue-500 text-white'
-                                : 'text-slate-400 hover:text-white'
-                            }`}
-                          >
-                            {region}
-                          </button>
-                        ))}
-                      </div>
                     </div>
 
                     {/* Bhasha / Language Filter Bar (Bajao-style multi-language selector) */}
