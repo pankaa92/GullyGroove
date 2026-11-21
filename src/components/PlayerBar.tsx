@@ -1,20 +1,34 @@
 import {
   ChevronDown,
+  Clock,
   ExternalLink,
   Heart,
+  History,
   ListMusic,
+  Loader2,
+  Maximize2,
   Pause,
   Play,
+  Plus,
   Repeat,
   Repeat1,
+  Scissors,
   Shuffle,
   SkipBack,
   SkipForward,
+  Tv,
   Volume2,
   VolumeX,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type { Track } from '../types/music';
 import {
   getSilentKeepAliveWavUrl,
@@ -23,15 +37,28 @@ import {
   updateMediaSessionPosition,
 } from '../utils/backgroundAudio';
 import { formatDuration } from '../utils/format';
+import {
+  getDefaultHookWindow,
+  loadCustomHooks,
+  saveCustomHooksMap,
+  type HookRange,
+} from '../utils/hookTiming';
 import { ArtworkImage } from './ArtworkImage';
+import { BoomboxEqRack } from './BoomboxEqRack';
+import { StudioWaveformScrubber } from './StudioWaveformScrubber';
 
 export type RepeatMode = 'off' | 'all' | 'one';
+type ConsoleDrawerTab = 'queue' | 'recent' | null;
 
 const CROSSFADE_TARGET_SEC = 8;
+const YT_BUFFER_WATCHDOG_MS = 12000;
 
 interface YTPlayerInstance {
   playVideo: () => void;
   pauseVideo: () => void;
+  stopVideo?: () => void;
+  loadVideoById?: (options: { videoId: string; startSeconds?: number }) => void;
+  cueVideoById?: (options: { videoId: string; startSeconds?: number }) => void;
   seekTo: (seconds: number, allowSeekAhead?: boolean) => void;
   getCurrentTime: () => number;
   getDuration: () => number;
@@ -58,9 +85,12 @@ interface YTNamespace {
     }
   ) => YTPlayerInstance;
   PlayerState?: {
+    UNSTARTED?: number;
     ENDED: number;
     PLAYING: number;
     PAUSED: number;
+    BUFFERING?: number;
+    CUED?: number;
   };
 }
 
@@ -119,14 +149,24 @@ interface CrossfadeStatus {
   remainingSec: number;
 }
 
+interface StageRect {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+}
+
 interface PlayerBarProps {
   currentTrack: Track | null;
   queue: Track[];
+  recentlyPlayed: Track[];
   isPlaying: boolean;
   shuffle: boolean;
   repeatMode: RepeatMode;
   isFavorite: boolean;
   embedTrack: Track | null;
+  studioConsoleOpen: boolean;
+  onSetStudioConsoleOpen: (open: boolean) => void;
   getNextTrack: (fromTrackId?: string) => Track | null;
   onCrossfadeComplete: (nextTrack: Track) => void;
   onCloseEmbed: () => void;
@@ -137,18 +177,24 @@ interface PlayerBarProps {
   onCycleRepeat: () => void;
   onToggleFavorite: (trackId: string) => void;
   onSelectTrack: (track: Track) => void;
+  onClearRecentlyPlayed?: () => void;
   onPlaybackEnded: () => void;
   onSetPlayingState: (playing: boolean) => void;
+  onClosePlayer?: () => void;
+  onOpenTuneRequest?: () => void;
 }
 
 export function PlayerBar({
   currentTrack,
   queue,
+  recentlyPlayed,
   isPlaying,
   shuffle,
   repeatMode,
   isFavorite,
   embedTrack,
+  studioConsoleOpen,
+  onSetStudioConsoleOpen,
   getNextTrack,
   onCrossfadeComplete,
   onCloseEmbed,
@@ -159,8 +205,11 @@ export function PlayerBar({
   onCycleRepeat,
   onToggleFavorite,
   onSelectTrack,
+  onClearRecentlyPlayed,
   onPlaybackEnded,
   onSetPlayingState,
+  onClosePlayer,
+  onOpenTuneRequest,
 }: PlayerBarProps) {
   // Dual HTML5 Audio Decks + Background Audio-Focus Keep-Alive Deck
   const deck0Ref = useRef<HTMLAudioElement | null>(null);
@@ -169,15 +218,37 @@ export function PlayerBar({
   const activeDeckIdxRef = useRef<0 | 1>(0);
   const deckTrackIdRef = useRef<[string, string]>(['', '']);
   const deckUrlRef = useRef<[string, string]>(['', '']);
+  const pendingAudioHookSeekTrackIdRef = useRef<string>('');
 
-  // Dual YouTube IFrame Decks (enables full 8s crossfade for YouTube->YouTube as well)
+  // Dual Persistent YouTube IFrame Decks (initialized once, switched via loadVideoById)
   const ytHost0Ref = useRef<HTMLDivElement | null>(null);
   const ytHost1Ref = useRef<HTMLDivElement | null>(null);
-  const ytPlayersRef = useRef<[YTPlayerInstance | null, YTPlayerInstance | null]>([null, null]);
+  const ytPlayersRef = useRef<[YTPlayerInstance | null, YTPlayerInstance | null]>([
+    null,
+    null,
+  ]);
+  const ytInitializingRef = useRef<[boolean, boolean]>([false, false]);
   const ytReadyRef = useRef<[boolean, boolean]>([false, false]);
   const ytDeckTrackIdRef = useRef<[string, string]>(['', '']);
+  const ytDesiredTrackRef = useRef<[Track | null, Track | null]>([null, null]);
+  const ytEmbedRetryIdxRef = useRef<[number, number]>([0, 0]);
   const activeYtDeckIdxRef = useRef<0 | 1>(0);
   const ytStartZeroRef = useRef<[boolean, boolean]>([false, false]);
+  const ytBufferingSinceRef = useRef<number | null>(null);
+  const wakeLockRef = useRef<{ release: () => Promise<void> } | null>(null);
+
+  // Center Studio Console Stage Slot measurement (keeps YT iframe locked inside Center Screen with 0 teardown)
+  const stageSlotRef = useRef<HTMLDivElement | null>(null);
+  const consoleScrollRef = useRef<HTMLDivElement | null>(null);
+  const [stageRect, setStageRect] = useState<StageRect | null>(null);
+  const [isDesktopViewport, setIsDesktopViewport] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= 1024 : true
+  );
+  const [isCoarsePointer, setIsCoarsePointer] = useState(() =>
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(pointer: coarse)').matches
+      : false
+  );
 
   const transitionRef = useRef<TransitionSession | null>(null);
   const transitionLockFromIdRef = useRef<string>('');
@@ -194,15 +265,25 @@ export function PlayerBar({
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(0.82);
   const [muted, setMuted] = useState(false);
-  const [queueOpen, setQueueOpen] = useState(false);
-  const [mobileExpanded, setMobileExpanded] = useState(false);
-  const [mobileQueueOpen, setMobileQueueOpen] = useState(false);
+  const [minimizedDrawerTab, setMinimizedDrawerTab] =
+    useState<ConsoleDrawerTab>(null);
+  const [consoleDrawerTab, setConsoleDrawerTab] = useState<ConsoleDrawerTab>(null);
   const [audioError, setAudioError] = useState<string | null>(null);
   const [ytDockMinimized, setYtDockMinimized] = useState(false);
-  const [ytSlotTracks, setYtSlotTracks] = useState<[Track | null, Track | null]>([null, null]);
+  const [ytBuffering, setYtBuffering] = useState(false);
+  const [ytSlotTracks, setYtSlotTracks] = useState<[Track | null, Track | null]>([
+    null,
+    null,
+  ]);
   const [activeYtDeckIdx, setActiveYtDeckIdx] = useState<0 | 1>(0);
   const [visualCrossfadeYtIdx, setVisualCrossfadeYtIdx] = useState<0 | 1 | null>(null);
   const [crossfadeStatus, setCrossfadeStatus] = useState<CrossfadeStatus | null>(null);
+
+  // Hook-based playback state (Auto-Cut Chorus Drop vs Full Song)
+  const [hookMode, setHookMode] = useState(false);
+  const [customHooks, setCustomHooks] = useState<Record<string, HookRange>>(() =>
+    loadCustomHooks()
+  );
 
   // Latest state/callback refs to avoid stale closures inside timers and player events
   const currentTrackRef = useRef(currentTrack);
@@ -215,6 +296,10 @@ export function PlayerBar({
   volumeRef.current = volume;
   const mutedRef = useRef(muted);
   mutedRef.current = muted;
+  const hookModeRef = useRef(hookMode);
+  hookModeRef.current = hookMode;
+  const customHooksRef = useRef(customHooks);
+  customHooksRef.current = customHooks;
   const getNextTrackRef = useRef(getNextTrack);
   getNextTrackRef.current = getNextTrack;
   const onCrossfadeCompleteRef = useRef(onCrossfadeComplete);
@@ -240,6 +325,146 @@ export function PlayerBar({
     ytSlotTracks[activeYtDeckIdx] ??
     ytSlotTracks[0] ??
     ytSlotTracks[1];
+  const nextTrackPreview = currentTrack ? getNextTrack(currentTrack.id) : null;
+
+  const effectiveDuration = duration || currentTrack?.durationSec || 218;
+  const progressPct =
+    effectiveDuration > 0 ? Math.min(100, (currentTime / effectiveDuration) * 100) : 0;
+
+  const getHookForTrack = useCallback(
+    (track: Track | null, durSec?: number): HookRange & { isCustom: boolean } => {
+      if (!track) return { startSec: 20, endSec: 80, isCustom: false };
+      const resolvedDur = durSec || track.durationSec || 218;
+      const custom = customHooksRef.current[track.id];
+      if (custom && custom.endSec > custom.startSec + 5 && custom.endSec <= resolvedDur + 1) {
+        return {
+          startSec: Math.max(0, custom.startSec),
+          endSec: Math.min(resolvedDur, custom.endSec),
+          isCustom: true,
+        };
+      }
+      const def = getDefaultHookWindow(resolvedDur, track);
+      return { ...def, isCustom: false };
+    },
+    []
+  );
+
+  const activeHookWindow = useMemo(() => {
+    if (!currentTrack) return { startSec: 20, endSec: 80, isCustom: false };
+    const custom = customHooks[currentTrack.id];
+    if (
+      custom &&
+      custom.endSec > custom.startSec + 5 &&
+      custom.endSec <= effectiveDuration + 1
+    ) {
+      return {
+        startSec: Math.max(0, custom.startSec),
+        endSec: Math.min(effectiveDuration, custom.endSec),
+        isCustom: true,
+      };
+    }
+    return {
+      ...getDefaultHookWindow(effectiveDuration, currentTrack),
+      isCustom: false,
+    };
+  }, [currentTrack, customHooks, effectiveDuration]);
+
+  // Responsive viewport listener for Center Console + Stage Slot measurement
+  useEffect(() => {
+    const syncViewport = () => {
+      setIsDesktopViewport(window.innerWidth >= 1024);
+      if (typeof window.matchMedia === 'function') {
+        setIsCoarsePointer(window.matchMedia('(pointer: coarse)').matches);
+      }
+    };
+    syncViewport();
+    window.addEventListener('resize', syncViewport);
+    return () => window.removeEventListener('resize', syncViewport);
+  }, []);
+
+  const measureStageSlot = useCallback(() => {
+    const el = stageSlotRef.current;
+    if (!el || !studioConsoleOpen) {
+      setStageRect(null);
+      return;
+    }
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 40 || rect.height < 40) {
+      setStageRect(null);
+      return;
+    }
+    setStageRect((prev) => {
+      if (
+        prev &&
+        Math.abs(prev.top - rect.top) < 1 &&
+        Math.abs(prev.left - rect.left) < 1 &&
+        Math.abs(prev.width - rect.width) < 1 &&
+        Math.abs(prev.height - rect.height) < 1
+      ) {
+        return prev;
+      }
+      return {
+        top: rect.top,
+        left: rect.left,
+        width: rect.width,
+        height: rect.height,
+      };
+    });
+  }, [studioConsoleOpen]);
+
+  useLayoutEffect(() => {
+    if (!studioConsoleOpen || !currentTrack) {
+      setStageRect(null);
+      return;
+    }
+
+    let rafId = 0;
+    let settleRafId = 0;
+    const startMs = performance.now();
+
+    const scheduleMeasure = () => {
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(measureStageSlot);
+    };
+
+    const trackTransitionFrames = () => {
+      measureStageSlot();
+      if (performance.now() - startMs < 280) {
+        settleRafId = requestAnimationFrame(trackTransitionFrames);
+      }
+    };
+
+    scheduleMeasure();
+    settleRafId = requestAnimationFrame(trackTransitionFrames);
+
+    const observer =
+      typeof ResizeObserver !== 'undefined' && stageSlotRef.current
+        ? new ResizeObserver(scheduleMeasure)
+        : null;
+    if (observer && stageSlotRef.current) {
+      observer.observe(stageSlotRef.current);
+    }
+
+    const scrollEl = consoleScrollRef.current;
+    scrollEl?.addEventListener('scroll', scheduleMeasure, { passive: true });
+    window.addEventListener('resize', scheduleMeasure);
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      cancelAnimationFrame(settleRafId);
+      observer?.disconnect();
+      scrollEl?.removeEventListener('scroll', scheduleMeasure);
+      window.removeEventListener('resize', scheduleMeasure);
+    };
+  }, [
+    studioConsoleOpen,
+    currentTrack?.id,
+    isCurrentYouTube,
+    hasAnyYtDeck,
+    consoleDrawerTab,
+    isDesktopViewport,
+    measureStageSlot,
+  ]);
 
   // Warm YouTube IFrame API and silent keep-alive audio stream once on mount
   useEffect(() => {
@@ -251,9 +476,54 @@ export function PlayerBar({
     }
   }, []);
 
+  // Screen WakeLock while playing so mobile/tablet screen stays awake cleanly during playback
+  useEffect(() => {
+    const navWithWakeLock = navigator as Navigator & {
+      wakeLock?: {
+        request: (type: 'screen') => Promise<{ release: () => Promise<void> }>;
+      };
+    };
+    if (!navWithWakeLock.wakeLock) return;
+
+    const acquireWakeLock = async () => {
+      if (!isPlayingRef.current || !currentTrackRef.current || document.hidden) return;
+      try {
+        if (!wakeLockRef.current) {
+          wakeLockRef.current = await navWithWakeLock.wakeLock!.request('screen');
+        }
+      } catch {
+        // Ignore browser battery-saver / permission blocks
+      }
+    };
+
+    const releaseWakeLock = async () => {
+      try {
+        await wakeLockRef.current?.release();
+      } catch {
+        // ignore
+      }
+      wakeLockRef.current = null;
+    };
+
+    if (isPlaying && currentTrack) {
+      void acquireWakeLock();
+    } else {
+      void releaseWakeLock();
+    }
+
+    const onVisibility = () => {
+      if (!document.hidden && isPlayingRef.current && currentTrackRef.current) {
+        void acquireWakeLock();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      void releaseWakeLock();
+    };
+  }, [isPlaying, currentTrack?.id]);
+
   // Unlock top-level <audio> elements synchronously on valid HTML user-activation events
-  // (click, touchend, keydown) so mobile Safari and Android Chrome allow background handoffs
-  // and YouTube keep-alive audio without NotAllowedError.
   useEffect(() => {
     const silentUrl = getSilentKeepAliveWavUrl();
     const primeAudioOnGesture = () => {
@@ -323,7 +593,7 @@ export function PlayerBar({
     };
   }, []);
 
-  // Track intentional user play/pause state so OS/browser backgrounding never leaves playback stuck paused
+  // Track intentional user play/pause state
   useEffect(() => {
     if (isPlaying) {
       userPausedRef.current = false;
@@ -392,7 +662,10 @@ export function PlayerBar({
           const inYt = session.incomingYtDeckIdx;
           ytStartZeroRef.current[inYt] = false;
           setYtSlotTracks((prev) => {
-            const next: [Track | null, Track | null] = [...prev] as [Track | null, Track | null];
+            const next: [Track | null, Track | null] = [...prev] as [
+              Track | null,
+              Track | null,
+            ];
             next[inYt] = null;
             return next;
           });
@@ -438,7 +711,6 @@ export function PlayerBar({
           setDuration(session.toTrack.durationSec || 0);
         }
       }
-      // Clear all YouTube slots when transitioning into an Audio track
       ytStartZeroRef.current = [false, false];
       setYtSlotTracks([null, null]);
     } else {
@@ -460,12 +732,14 @@ export function PlayerBar({
         }
       }
 
-      // Remove outgoing YouTube slot if we came from YouTube->YouTube
       if (session.outgoingKind === 'youtube') {
         const outYt = session.outgoingYtDeckIdx;
         ytStartZeroRef.current[outYt] = false;
         setYtSlotTracks((prev) => {
-          const next: [Track | null, Track | null] = [...prev] as [Track | null, Track | null];
+          const next: [Track | null, Track | null] = [...prev] as [
+            Track | null,
+            Track | null,
+          ];
           next[outYt] = null;
           return next;
         });
@@ -479,7 +753,6 @@ export function PlayerBar({
   const applyFadeVolumes = useCallback(
     (session: TransitionSession, progress: number) => {
       const master = mutedRef.current ? 0 : volumeRef.current;
-      // Equal-power crossfade curve prevents any volume dip or spike during the 8s overlap
       const outGain = Math.cos(progress * Math.PI * 0.5);
       const inGain = Math.sin(progress * Math.PI * 0.5);
 
@@ -522,7 +795,10 @@ export function PlayerBar({
         activeSession.elapsedMs += Math.max(0, now - activeSession.lastTickMs);
         activeSession.lastTickMs = now;
 
-        const progress = Math.min(1, activeSession.elapsedMs / activeSession.durationMs);
+        const progress = Math.min(
+          1,
+          activeSession.elapsedMs / activeSession.durationMs
+        );
         applyFadeVolumes(activeSession, progress);
 
         const secsLeft = Math.max(
@@ -576,15 +852,43 @@ export function PlayerBar({
       const track = currentTrackRef.current;
       if (!track || !isPlayingRef.current) return;
       if (transitionRef.current) return;
-      if (repeatModeRef.current === 'one') return;
       if (!Number.isFinite(durSec) || durSec <= 4) return;
+
+      const hookWin = getHookForTrack(track, durSec);
+      const effectiveEnd = hookModeRef.current
+        ? Math.min(durSec, hookWin.endSec)
+        : durSec;
+      const remaining = effectiveEnd - curSec;
+
+      if (repeatModeRef.current === 'one') {
+        if (hookModeRef.current && remaining <= 0.25) {
+          if (sourceKind === 'youtube') {
+            ytPlayersRef.current[activeYtDeckIdxRef.current]?.seekTo(
+              hookWin.startSec,
+              true
+            );
+          } else {
+            const deck = getDeck(activeDeckIdxRef.current);
+            if (deck) deck.currentTime = hookWin.startSec;
+          }
+          setCurrentTime(hookWin.startSec);
+        }
+        return;
+      }
+
       if (transitionLockFromIdRef.current === track.id) return;
+
+      // If user sought past hook end in Hook Mode, advance cleanly
+      if (hookModeRef.current && remaining <= 0.15) {
+        transitionLockFromIdRef.current = track.id;
+        onPlaybackEndedRef.current();
+        return;
+      }
 
       const triggerWindow = Math.min(
         CROSSFADE_TARGET_SEC,
-        Math.max(2, durSec * 0.45)
+        Math.max(2, effectiveEnd * 0.45)
       );
-      const remaining = durSec - curSec;
       if (remaining > triggerWindow || remaining <= 0.25) return;
 
       const next = getNextTrackRef.current(track.id);
@@ -606,6 +910,10 @@ export function PlayerBar({
       const durationMs = Math.max(1500, Math.round(remaining * 1000));
       transitionLockFromIdRef.current = track.id;
 
+      const nextStartSec = hookModeRef.current
+        ? getHookForTrack(next, next.durationSec || 218).startSec
+        : 0;
+
       if (incomingKind === 'audio') {
         const inDeck = getDeck(incomingAudioDeckIdx);
         if (!inDeck || !next.streamUrl) return;
@@ -622,7 +930,11 @@ export function PlayerBar({
           deckTrackIdRef.current[incomingAudioDeckIdx] = next.id;
         }
 
-        inDeck.currentTime = 0;
+        try {
+          inDeck.currentTime = nextStartSec;
+        } catch {
+          // ignore if metadata not yet loaded
+        }
         inDeck.volume = 0;
         inDeck.play().catch((err: unknown) => {
           const name = (err as { name?: string })?.name;
@@ -638,7 +950,9 @@ export function PlayerBar({
         }
         setYtSlotTracks((prev) => {
           const updated: [Track | null, Track | null] =
-            sourceKind === 'youtube' ? [...prev] as [Track | null, Track | null] : [null, null];
+            sourceKind === 'youtube'
+              ? ([...prev] as [Track | null, Track | null])
+              : [null, null];
           updated[incomingYtDeckIdx] = next;
           return updated;
         });
@@ -666,7 +980,7 @@ export function PlayerBar({
       });
       startTransitionInterval(session);
     },
-    [cancelTransition, getDeck, startTransitionInterval]
+    [cancelTransition, getDeck, getHookForTrack, startTransitionInterval]
   );
 
   // Reset YouTube dock visibility whenever a new YouTube track starts
@@ -684,6 +998,8 @@ export function PlayerBar({
       clearDeck(1);
       ytStartZeroRef.current = [false, false];
       setYtSlotTracks([null, null]);
+      setMinimizedDrawerTab(null);
+      setConsoleDrawerTab(null);
       setCurrentTime(0);
       setDuration(0);
       return;
@@ -694,13 +1010,15 @@ export function PlayerBar({
       const alreadyActiveYt = ytDeckTrackIdRef.current[activeYt] === currentTrack.id;
 
       if (!alreadyActiveYt) {
-        // User manually switched to a YouTube track
         cancelTransition(true);
         clearDeck(0);
         clearDeck(1);
         transitionLockFromIdRef.current = '';
         setAudioError(null);
-        setCurrentTime(0);
+        const startSec = hookModeRef.current
+          ? getHookForTrack(currentTrack, currentTrack.durationSec || 218).startSec
+          : 0;
+        setCurrentTime(startSec);
         setDuration(currentTrack.durationSec || 0);
 
         activeYtDeckIdxRef.current = 0;
@@ -734,7 +1052,11 @@ export function PlayerBar({
       deckTrackIdRef.current[activeIdx] = currentTrack.id;
       deckUrlRef.current[activeIdx] = resolvedUrl;
       setAudioError(null);
-      setCurrentTime(0);
+      const startSec = hookModeRef.current
+        ? getHookForTrack(currentTrack, currentTrack.durationSec || 218).startSec
+        : 0;
+      pendingAudioHookSeekTrackIdRef.current = startSec > 0 ? currentTrack.id : '';
+      setCurrentTime(startSec);
       setDuration(currentTrack.durationSec || 0);
       activeDeck.volume = mutedRef.current ? 0 : volumeRef.current;
       activeDeck.src = resolvedUrl;
@@ -775,89 +1097,209 @@ export function PlayerBar({
     cancelTransition,
     clearDeck,
     getDeck,
+    getHookForTrack,
   ]);
 
-  // Mount & manage YouTube Slot 0 and Slot 1 independently for seamless YouTube->YouTube crossfade
-  const mountYtSlot = useCallback(
+  // Sync YouTube Slot 0 and Slot 1 using persistent YT.Player instances + loadVideoById
+  const ensureYtSlotSynced = useCallback(
     (slotIdx: 0 | 1, track: Track | null) => {
-      const hostEl = slotIdx === 0 ? ytHost0Ref.current : ytHost1Ref.current;
+      ytDesiredTrackRef.current[slotIdx] = track;
+      const existingPlayer = ytPlayersRef.current[slotIdx];
+
       if (!track || !track.embedId) {
-        ytReadyRef.current[slotIdx] = false;
         ytDeckTrackIdRef.current[slotIdx] = '';
-        if (ytPlayersRef.current[slotIdx]) {
+        if (existingPlayer && ytReadyRef.current[slotIdx]) {
           try {
-            ytPlayersRef.current[slotIdx]?.destroy();
+            existingPlayer.pauseVideo();
+            existingPlayer.stopVideo?.();
           } catch {
             // ignore
           }
-          ytPlayersRef.current[slotIdx] = null;
         }
-        hostEl?.replaceChildren();
-        return () => {};
+        return;
       }
 
-      let cancelled = false;
-      const videoId = track.embedId;
       const startZero = ytStartZeroRef.current[slotIdx];
-      ytReadyRef.current[slotIdx] = false;
+      const shouldAutoPlay = isPlayingRef.current || startZero;
+      const hookStartSec = hookModeRef.current
+        ? getHookForTrack(track, track.durationSec || 218).startSec
+        : 0;
+
+      // Fast path: persistent player already created & ready -> reuse via loadVideoById (no iframe rebuild!)
+      if (existingPlayer && ytReadyRef.current[slotIdx]) {
+        const sameTrack = ytDeckTrackIdRef.current[slotIdx] === track.id;
+        ytDeckTrackIdRef.current[slotIdx] = track.id;
+        ytBufferingSinceRef.current = null;
+        if (!sameTrack) {
+          ytEmbedRetryIdxRef.current[slotIdx] = 0;
+        }
+
+        if (startZero) {
+          try {
+            existingPlayer.unMute();
+            existingPlayer.setVolume(0);
+          } catch {
+            // ignore
+          }
+        } else {
+          setYtDeckVolume(slotIdx, volumeRef.current);
+        }
+
+        if (!sameTrack) {
+          setYtBuffering(true);
+          try {
+            if (shouldAutoPlay && existingPlayer.loadVideoById) {
+              existingPlayer.loadVideoById({
+                videoId: track.embedId,
+                startSeconds: hookStartSec,
+              });
+            } else if (!shouldAutoPlay && existingPlayer.cueVideoById) {
+              existingPlayer.cueVideoById({
+                videoId: track.embedId,
+                startSeconds: hookStartSec,
+              });
+            } else {
+              existingPlayer.loadVideoById?.({
+                videoId: track.embedId,
+                startSeconds: hookStartSec,
+              });
+            }
+            if (shouldAutoPlay) {
+              existingPlayer.playVideo();
+              keepAliveAudioRef.current?.play().catch(() => {});
+              syncMediaSessionRef.current();
+            }
+          } catch {
+            // ignore
+          }
+        } else if (shouldAutoPlay) {
+          try {
+            existingPlayer.playVideo();
+          } catch {
+            // ignore
+          }
+        }
+        return;
+      }
+
+      // Initialize persistent YT.Player once for this slot
+      if (ytInitializingRef.current[slotIdx]) {
+        return;
+      }
+      ytInitializingRef.current[slotIdx] = true;
       ytDeckTrackIdRef.current[slotIdx] = track.id;
+      ytEmbedRetryIdxRef.current[slotIdx] = 0;
+      setYtBuffering(true);
 
       loadYouTubeIframeApi().then(() => {
         const currentHost = slotIdx === 0 ? ytHost0Ref.current : ytHost1Ref.current;
-        if (cancelled || !currentHost || !window.YT?.Player) return;
+        if (!currentHost || !window.YT?.Player) {
+          ytInitializingRef.current[slotIdx] = false;
+          return;
+        }
 
+        const latestDesired = ytDesiredTrackRef.current[slotIdx];
+        const initialVideoId = latestDesired?.embedId || track.embedId!;
         const mountEl = document.createElement('div');
         currentHost.replaceChildren(mountEl);
 
         const player = new window.YT.Player(mountEl, {
-          videoId,
+          videoId: initialVideoId,
           width: '100%',
           height: '100%',
           playerVars: {
-            autoplay: isPlayingRef.current || startZero ? 1 : 0,
+            autoplay: 0,
+            controls: 0,
+            disablekb: 1,
+            fs: 0,
             playsinline: 1,
             rel: 0,
+            iv_load_policy: 3,
             modestbranding: 1,
             enablejsapi: 1,
             origin: window.location.origin,
+            widget_referrer: window.location.href,
           },
           events: {
             onReady: (event) => {
-              if (cancelled) return;
+              ytInitializingRef.current[slotIdx] = false;
               ytReadyRef.current[slotIdx] = true;
               ytPlayersRef.current[slotIdx] = event.target;
               consecutiveYtErrorsRef.current = 0;
 
-              if (startZero) {
+              const readyIframe = (
+                slotIdx === 0 ? ytHost0Ref.current : ytHost1Ref.current
+              )?.querySelector('iframe');
+              if (readyIframe) {
+                readyIframe.setAttribute(
+                  'allow',
+                  'autoplay; encrypted-media; picture-in-picture; fullscreen'
+                );
+              }
+
+              const latestTrack = ytDesiredTrackRef.current[slotIdx];
+              if (!latestTrack || !latestTrack.embedId) {
+                try {
+                  event.target.pauseVideo();
+                } catch {
+                  // ignore
+                }
+                setYtBuffering(false);
+                return;
+              }
+
+              const latestStartZero = ytStartZeroRef.current[slotIdx];
+              const latestShouldPlay = isPlayingRef.current || latestStartZero;
+              const latestHookStart = hookModeRef.current
+                ? getHookForTrack(latestTrack, latestTrack.durationSec || 218).startSec
+                : 0;
+
+              if (latestStartZero) {
                 event.target.unMute();
                 event.target.setVolume(0);
               } else {
                 setYtDeckVolume(slotIdx, volumeRef.current);
               }
 
-              if (!startZero && slotIdx === activeYtDeckIdxRef.current) {
+              if (
+                latestTrack.embedId !== initialVideoId &&
+                event.target.loadVideoById
+              ) {
+                ytDeckTrackIdRef.current[slotIdx] = latestTrack.id;
+                event.target.loadVideoById({
+                  videoId: latestTrack.embedId,
+                  startSeconds: latestHookStart,
+                });
+              } else if (latestHookStart > 0) {
+                try {
+                  event.target.seekTo(latestHookStart, true);
+                } catch {
+                  // ignore
+                }
+              }
+
+              if (!latestStartZero && slotIdx === activeYtDeckIdxRef.current) {
                 const ytDur = event.target.getDuration();
                 if (Number.isFinite(ytDur) && ytDur > 0) {
                   setDuration(ytDur);
                 }
               }
 
-              const readyIframe = (slotIdx === 0 ? ytHost0Ref.current : ytHost1Ref.current)?.querySelector('iframe');
-              if (readyIframe) {
-                readyIframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture; fullscreen');
-              }
-
-              if (isPlayingRef.current || startZero) {
+              if (latestShouldPlay) {
                 event.target.playVideo();
                 keepAliveAudioRef.current?.play().catch(() => {});
                 syncMediaSessionRef.current();
+              } else {
+                setYtBuffering(false);
               }
             },
             onStateChange: (event) => {
-              if (cancelled) return;
+              if (!ytDesiredTrackRef.current[slotIdx]) return;
+              const UNSTARTED = window.YT?.PlayerState?.UNSTARTED ?? -1;
               const ENDED = window.YT?.PlayerState?.ENDED ?? 0;
               const PLAYING = window.YT?.PlayerState?.PLAYING ?? 1;
               const PAUSED = window.YT?.PlayerState?.PAUSED ?? 2;
+              const BUFFERING = window.YT?.PlayerState?.BUFFERING ?? 3;
 
               const isOutgoingDuringFade = Boolean(
                 transitionRef.current &&
@@ -870,8 +1312,20 @@ export function PlayerBar({
                   transitionRef.current.incomingYtDeckIdx === slotIdx
               );
 
+              if (event.data === BUFFERING || event.data === UNSTARTED) {
+                if (slotIdx === activeYtDeckIdxRef.current && isPlayingRef.current) {
+                  setYtBuffering(true);
+                  if (ytBufferingSinceRef.current === null) {
+                    ytBufferingSinceRef.current = Date.now();
+                  }
+                }
+                return;
+              }
+
               if (event.data === PLAYING) {
                 consecutiveYtErrorsRef.current = 0;
+                ytBufferingSinceRef.current = null;
+                setYtBuffering(false);
                 keepAliveAudioRef.current?.play().catch(() => {});
                 if (!transitionRef.current && slotIdx === activeYtDeckIdxRef.current) {
                   const ytDur = event.target.getDuration();
@@ -879,12 +1333,13 @@ export function PlayerBar({
                     setDuration(ytDur);
                   }
                   onSetPlayingStateRef.current(true);
-                  // Re-assert GullyGroove MediaSession so the YouTube iframe cannot overwrite lock-screen controls
                   syncMediaSessionRef.current();
                   window.setTimeout(() => syncMediaSessionRef.current(), 350);
                   window.setTimeout(() => syncMediaSessionRef.current(), 1200);
                 }
               } else if (event.data === PAUSED) {
+                ytBufferingSinceRef.current = null;
+                setYtBuffering(false);
                 const isBackgroundOrFocusLoss =
                   document.hidden ||
                   !document.hasFocus() ||
@@ -894,8 +1349,6 @@ export function PlayerBar({
                   !userPausedRef.current &&
                   isPlayingRef.current
                 ) {
-                  // Browser/OS paused the YouTube iframe during tab switch, minimize, or lock screen.
-                  // Immediately resume playback so music continues seamlessly in the background.
                   keepAliveAudioRef.current?.play().catch(() => {});
                   try {
                     event.target.playVideo();
@@ -932,6 +1385,8 @@ export function PlayerBar({
                   onSetPlayingStateRef.current(false);
                 }
               } else if (event.data === ENDED) {
+                ytBufferingSinceRef.current = null;
+                setYtBuffering(false);
                 if (isOutgoingDuringFade) {
                   finishTransition();
                 } else if (
@@ -939,7 +1394,12 @@ export function PlayerBar({
                   slotIdx === activeYtDeckIdxRef.current
                 ) {
                   if (repeatModeRef.current === 'one') {
-                    event.target.seekTo(0, true);
+                    const desired = ytDesiredTrackRef.current[slotIdx];
+                    const restartAt =
+                      hookModeRef.current && desired
+                        ? getHookForTrack(desired, desired.durationSec || 218).startSec
+                        : 0;
+                    event.target.seekTo(restartAt, true);
                     event.target.playVideo();
                   } else {
                     onPlaybackEndedRef.current();
@@ -948,17 +1408,51 @@ export function PlayerBar({
               }
             },
             onError: () => {
-              if (cancelled) return;
+              ytBufferingSinceRef.current = null;
+              setYtBuffering(false);
+              const desiredTrack = ytDesiredTrackRef.current[slotIdx];
+              if (!desiredTrack) return;
+
+              const fallbacks = desiredTrack.fallbackEmbedIds || [];
+              const nextRetryIdx = ytEmbedRetryIdxRef.current[slotIdx];
+              if (nextRetryIdx < fallbacks.length) {
+                const backupVideoId = fallbacks[nextRetryIdx];
+                ytEmbedRetryIdxRef.current[slotIdx] = nextRetryIdx + 1;
+                const player = ytPlayersRef.current[slotIdx];
+                if (player && ytReadyRef.current[slotIdx] && backupVideoId) {
+                  const hookStart = hookModeRef.current
+                    ? getHookForTrack(desiredTrack, desiredTrack.durationSec || 218)
+                        .startSec
+                    : 0;
+                  try {
+                    setYtBuffering(true);
+                    ytBufferingSinceRef.current = Date.now();
+                    player.loadVideoById?.({
+                      videoId: backupVideoId,
+                      startSeconds: hookStart,
+                    });
+                    if (isPlayingRef.current || ytStartZeroRef.current[slotIdx]) {
+                      player.playVideo();
+                    }
+                    return;
+                  } catch {
+                    // fall through to skip logic below
+                  }
+                }
+              }
+
               if (slotIdx !== activeYtDeckIdxRef.current && transitionRef.current) {
                 cancelTransition(true);
                 return;
               }
               consecutiveYtErrorsRef.current += 1;
-              if (consecutiveYtErrorsRef.current <= 2) {
-                setAudioError('YouTube track unavailable here; skipping to next track...');
+              if (consecutiveYtErrorsRef.current <= 3) {
+                setAudioError('YouTube mirror unavailable; skipping to next track...');
                 onPlaybackEndedRef.current();
               } else {
-                setAudioError('YouTube embed could not start. Please try another track.');
+                setAudioError(
+                  'YouTube embed could not start. Please try another track.'
+                );
                 onSetPlayingStateRef.current(false);
               }
             },
@@ -967,36 +1461,67 @@ export function PlayerBar({
 
         const iframeEl = currentHost.querySelector('iframe');
         if (iframeEl) {
-          iframeEl.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture; fullscreen');
+          iframeEl.setAttribute(
+            'allow',
+            'autoplay; encrypted-media; picture-in-picture; fullscreen'
+          );
         }
         ytPlayersRef.current[slotIdx] = player;
       });
-
-      return () => {
-        cancelled = true;
-        ytReadyRef.current[slotIdx] = false;
-        ytDeckTrackIdRef.current[slotIdx] = '';
-        if (ytPlayersRef.current[slotIdx]) {
-          try {
-            ytPlayersRef.current[slotIdx]?.destroy();
-          } catch {
-            // ignore
-          }
-          ytPlayersRef.current[slotIdx] = null;
-        }
-        (slotIdx === 0 ? ytHost0Ref.current : ytHost1Ref.current)?.replaceChildren();
-      };
     },
-    [cancelTransition, finishTransition, setYtDeckVolume]
+    [cancelTransition, finishTransition, getHookForTrack, setYtDeckVolume]
   );
 
+  // Destroy persistent YT players only on unmount
   useEffect(() => {
-    return mountYtSlot(0, ytSlotTracks[0]);
-  }, [ytSlotTracks[0]?.id, ytSlotTracks[0]?.embedId, mountYtSlot]);
+    return () => {
+      ([0, 1] as const).forEach((slotIdx) => {
+        try {
+          ytPlayersRef.current[slotIdx]?.destroy();
+        } catch {
+          // ignore
+        }
+        ytPlayersRef.current[slotIdx] = null;
+        ytReadyRef.current[slotIdx] = false;
+      });
+    };
+  }, []);
 
   useEffect(() => {
-    return mountYtSlot(1, ytSlotTracks[1]);
-  }, [ytSlotTracks[1]?.id, ytSlotTracks[1]?.embedId, mountYtSlot]);
+    ensureYtSlotSynced(0, ytSlotTracks[0]);
+  }, [ytSlotTracks[0]?.id, ytSlotTracks[0]?.embedId, ensureYtSlotSynced]);
+
+  useEffect(() => {
+    ensureYtSlotSynced(1, ytSlotTracks[1]);
+  }, [ytSlotTracks[1]?.id, ytSlotTracks[1]?.embedId, ensureYtSlotSynced]);
+
+  // Unlock idle YouTube deck silently on active playback gesture
+  useEffect(() => {
+    if (!isPlaying || !isCurrentYouTube) return;
+    const standbySlot: 0 | 1 = activeYtDeckIdxRef.current === 0 ? 1 : 0;
+    const standbyPlayer = ytPlayersRef.current[standbySlot];
+    if (
+      standbyPlayer &&
+      ytReadyRef.current[standbySlot] &&
+      !ytSlotTracks[standbySlot]
+    ) {
+      try {
+        standbyPlayer.mute();
+        standbyPlayer.playVideo();
+        window.setTimeout(() => {
+          if (!ytDesiredTrackRef.current[standbySlot]) {
+            try {
+              standbyPlayer.pauseVideo();
+            } catch {
+              // ignore
+            }
+          }
+        }, 60);
+      } catch {
+        // ignore
+      }
+    }
+  }, [isPlaying, isCurrentYouTube, currentTrack?.id, ytSlotTracks]);
 
   // Sync Play/Pause across active and transitioning YouTube decks
   useEffect(() => {
@@ -1013,18 +1538,16 @@ export function PlayerBar({
     });
   }, [isPlaying, ytSlotTracks]);
 
-  // Preload the next direct-audio track onto the idle audio deck ahead of the 8-second window
+  // Preload next direct-audio track onto idle deck
   useEffect(() => {
     if (!currentTrack || !isPlaying) return;
     const timer = window.setTimeout(() => {
       preloadIdleDeckForTrack(currentTrack);
     }, 600);
     return () => window.clearTimeout(timer);
-  }, [currentTrack?.id, isPlaying, queue, shuffle, repeatMode, preloadIdleDeckForTrack]);
+  }, [currentTrack?.id, isPlaying, queue, preloadIdleDeckForTrack]);
 
-  // Maintain top-level Audio Focus loop whenever playback is active so OS lock-screen,
-  // MediaSession controls, and background playback continue uninterrupted across app switch,
-  // screen lock, and Audio <-> YouTube crossfade handoffs.
+  // Maintain top-level Audio Focus loop
   useEffect(() => {
     const ka = keepAliveAudioRef.current;
     if (!ka) return;
@@ -1040,13 +1563,18 @@ export function PlayerBar({
     }
   }, [isPlaying, currentTrack?.id, isCurrentYouTube, hasAnyYtDeck]);
 
-  // High-resolution unthrottled playback monitor for HTML5 audio (works in background tabs & screen-off)
+  // High-resolution unthrottled playback monitor for HTML5 audio
   useEffect(() => {
     if (!isPlaying || !currentTrack || isCurrentYouTube) return;
     return startBackgroundTicker(() => {
       const activeDeck = getDeck(activeDeckIdxRef.current);
       if (!activeDeck) return;
-      if (activeDeck.paused && activeDeck.src && !userPausedRef.current && isPlayingRef.current) {
+      if (
+        activeDeck.paused &&
+        activeDeck.src &&
+        !userPausedRef.current &&
+        isPlayingRef.current
+      ) {
         activeDeck.play().catch(() => {});
       }
       const cur = activeDeck.currentTime;
@@ -1067,9 +1595,13 @@ export function PlayerBar({
     }, 200);
   }, [isPlaying, currentTrack?.id, isCurrentYouTube, getDeck, maybeStartCrossfade]);
 
-  // High-resolution unthrottled playback monitor for YouTube (background crossfade, anti-suspend & MediaSession sync)
+  // High-resolution unthrottled playback monitor for YouTube
   useEffect(() => {
-    if (!isCurrentYouTube || !isPlaying) return;
+    if (!isCurrentYouTube || !isPlaying) {
+      ytBufferingSinceRef.current = null;
+      setYtBuffering(false);
+      return;
+    }
     return startBackgroundTicker(() => {
       const ka = keepAliveAudioRef.current;
       if (ka && ka.paused && !userPausedRef.current && isPlayingRef.current) {
@@ -1080,14 +1612,35 @@ export function PlayerBar({
       const player = ytPlayersRef.current[activeSlot];
       if (!player || !ytReadyRef.current[activeSlot]) return;
       try {
+        const ytState = player.getPlayerState?.();
         if (
           !userPausedRef.current &&
           isPlayingRef.current &&
           (document.hidden || !document.hasFocus()) &&
           Date.now() - lastVisibilityChangeMsRef.current < 5000 &&
-          player.getPlayerState?.() === 2
+          ytState === 2
         ) {
           player.playVideo();
+        }
+
+        if (
+          (ytState === -1 || ytState === 3) &&
+          !transitionRef.current &&
+          !userPausedRef.current
+        ) {
+          setYtBuffering(true);
+          if (ytBufferingSinceRef.current === null) {
+            ytBufferingSinceRef.current = Date.now();
+          } else if (Date.now() - ytBufferingSinceRef.current > YT_BUFFER_WATCHDOG_MS) {
+            ytBufferingSinceRef.current = null;
+            setYtBuffering(false);
+            setAudioError('YouTube stream stalled; skipping to next track...');
+            onPlaybackEndedRef.current();
+            return;
+          }
+        } else if (ytState === 1) {
+          ytBufferingSinceRef.current = null;
+          setYtBuffering(false);
         }
 
         const cur = player.getCurrentTime();
@@ -1114,7 +1667,7 @@ export function PlayerBar({
     }, 250);
   }, [isCurrentYouTube, isPlaying, maybeStartCrossfade]);
 
-  // Background visibility & focus guard: prevent OS/browser tab switch, minimize, or screen lock from pausing audio or YouTube
+  // Background visibility & focus guard
   useEffect(() => {
     const resumeActivePlayback = () => {
       if (!isPlayingRef.current || userPausedRef.current) return;
@@ -1124,7 +1677,11 @@ export function PlayerBar({
       if (currentTrackRef.current?.playbackRights === 'embed-only') {
         ([0, 1] as const).forEach((slotIdx) => {
           const player = ytPlayersRef.current[slotIdx];
-          if (player && ytReadyRef.current[slotIdx] && ytDeckTrackIdRef.current[slotIdx]) {
+          if (
+            player &&
+            ytReadyRef.current[slotIdx] &&
+            ytDeckTrackIdRef.current[slotIdx]
+          ) {
             try {
               player.playVideo();
             } catch {
@@ -1172,7 +1729,7 @@ export function PlayerBar({
     };
   }, [finishTransition, getDeck]);
 
-  // Sync volume & mute to active deck (or active crossfade) across Audio & YouTube
+  // Sync volume & mute to active deck
   useEffect(() => {
     if (transitionRef.current) {
       const s = transitionRef.current;
@@ -1198,32 +1755,38 @@ export function PlayerBar({
     };
   }, []);
 
-  const handleSeek = useCallback((nextSec: number) => {
-    const dur = durationRef.current || currentTrackRef.current?.durationSec || 218;
-    const clampedSec = Math.max(0, Math.min(dur, nextSec));
-    const remainingAfterSeek = dur - clampedSec;
-    if (remainingAfterSeek > CROSSFADE_TARGET_SEC + 0.5) {
-      cancelTransition(true);
-      transitionLockFromIdRef.current = '';
-    }
-
-    if (currentTrackRef.current?.playbackRights === 'embed-only' && currentTrackRef.current.embedId) {
-      const activeSlot = activeYtDeckIdxRef.current;
-      const player = ytPlayersRef.current[activeSlot];
-      if (player && ytReadyRef.current[activeSlot]) {
-        player.seekTo(clampedSec, true);
-        setCurrentTime(clampedSec);
-        updateMediaSessionPosition(clampedSec, dur);
+  const handleSeek = useCallback(
+    (nextSec: number) => {
+      const dur = durationRef.current || currentTrackRef.current?.durationSec || 218;
+      const clampedSec = Math.max(0, Math.min(dur, nextSec));
+      const remainingAfterSeek = dur - clampedSec;
+      if (remainingAfterSeek > CROSSFADE_TARGET_SEC + 0.5) {
+        cancelTransition(true);
+        transitionLockFromIdRef.current = '';
       }
-      return;
-    }
 
-    const activeDeck = getDeck(activeDeckIdxRef.current);
-    if (!activeDeck) return;
-    activeDeck.currentTime = clampedSec;
-    setCurrentTime(clampedSec);
-    updateMediaSessionPosition(clampedSec, dur);
-  }, [cancelTransition, getDeck]);
+      if (
+        currentTrackRef.current?.playbackRights === 'embed-only' &&
+        currentTrackRef.current.embedId
+      ) {
+        const activeSlot = activeYtDeckIdxRef.current;
+        const player = ytPlayersRef.current[activeSlot];
+        if (player && ytReadyRef.current[activeSlot]) {
+          player.seekTo(clampedSec, true);
+          setCurrentTime(clampedSec);
+          updateMediaSessionPosition(clampedSec, dur);
+        }
+        return;
+      }
+
+      const activeDeck = getDeck(activeDeckIdxRef.current);
+      if (!activeDeck) return;
+      activeDeck.currentTime = clampedSec;
+      setCurrentTime(clampedSec);
+      updateMediaSessionPosition(clampedSec, dur);
+    },
+    [cancelTransition, getDeck]
+  );
 
   const handleSeekRef = useRef(handleSeek);
   handleSeekRef.current = handleSeek;
@@ -1253,6 +1816,48 @@ export function PlayerBar({
     }
     onPlayPause();
   }, [getDeck, onPlayPause]);
+
+  const handleToggleHookMode = useCallback(() => {
+    setHookMode((prev) => {
+      const next = !prev;
+      const track = currentTrackRef.current;
+      if (next && track) {
+        const dur = durationRef.current || track.durationSec || 218;
+        const hook = getHookForTrack(track, dur);
+        if (
+          currentTimeRef.current < hook.startSec - 1 ||
+          currentTimeRef.current >= hook.endSec - 2
+        ) {
+          handleSeekRef.current(hook.startSec);
+        }
+      }
+      return next;
+    });
+  }, [getHookForTrack]);
+
+  const handleUpdateHook = useCallback(
+    (startSec: number, endSec: number) => {
+      const track = currentTrackRef.current;
+      if (!track) return;
+      setCustomHooks((prev) => {
+        const next = { ...prev, [track.id]: { startSec, endSec } };
+        saveCustomHooksMap(next);
+        return next;
+      });
+    },
+    []
+  );
+
+  const handleResetHook = useCallback(() => {
+    const track = currentTrackRef.current;
+    if (!track) return;
+    setCustomHooks((prev) => {
+      const next = { ...prev };
+      delete next[track.id];
+      saveCustomHooksMap(next);
+      return next;
+    });
+  }, []);
 
   const syncMediaSession = useCallback(() => {
     registerMediaSession(currentTrackRef.current, isPlayingRef.current, {
@@ -1305,14 +1910,14 @@ export function PlayerBar({
         onPrevRef.current();
       },
       onSeekTo: (timeSec) => handleSeekRef.current(timeSec),
-      onSeekBy: (deltaSec) => handleSeekRef.current(currentTimeRef.current + deltaSec),
+      onSeekBy: (deltaSec) =>
+        handleSeekRef.current(currentTimeRef.current + deltaSec),
     });
   }, [getDeck]);
 
   const syncMediaSessionRef = useRef(syncMediaSession);
   syncMediaSessionRef.current = syncMediaSession;
 
-  // Register OS / Mobile Lock-Screen Media Session metadata and transport controls
   useEffect(() => {
     syncMediaSession();
   }, [currentTrack, isPlaying, syncMediaSession]);
@@ -1333,8 +1938,27 @@ export function PlayerBar({
 
   const handleDeckLoadedMetadata = (deckIdx: 0 | 1, deckEl: HTMLAudioElement) => {
     if (deckIdx !== activeDeckIdxRef.current) return;
-    if (Number.isFinite(deckEl.duration) && deckEl.duration > 0) {
-      setDuration(deckEl.duration);
+    const loadedDur =
+      Number.isFinite(deckEl.duration) && deckEl.duration > 0
+        ? deckEl.duration
+        : currentTrackRef.current?.durationSec || 0;
+    if (loadedDur > 0) {
+      setDuration(loadedDur);
+    }
+    const track = currentTrackRef.current;
+    if (
+      hookModeRef.current &&
+      track &&
+      pendingAudioHookSeekTrackIdRef.current === track.id
+    ) {
+      pendingAudioHookSeekTrackIdRef.current = '';
+      const hookStart = getHookForTrack(track, loadedDur || 218).startSec;
+      try {
+        deckEl.currentTime = hookStart;
+        setCurrentTime(hookStart);
+      } catch {
+        // ignore seek before ready
+      }
     }
   };
 
@@ -1354,7 +1978,13 @@ export function PlayerBar({
 
     const activeDeck = getDeck(deckIdx);
     if (repeatModeRef.current === 'one' && activeDeck) {
-      activeDeck.currentTime = 0;
+      const track = currentTrackRef.current;
+      const restartSec =
+        hookModeRef.current && track
+          ? getHookForTrack(track, activeDeck.duration || track.durationSec || 218)
+              .startSec
+          : 0;
+      activeDeck.currentTime = restartSec;
       activeDeck.play().catch(() => {});
       return;
     }
@@ -1391,9 +2021,24 @@ export function PlayerBar({
     }
   };
 
-  const effectiveDuration = duration || currentTrack?.durationSec || 218;
-  const progressPct =
-    effectiveDuration > 0 ? Math.min(100, (currentTime / effectiveDuration) * 100) : 0;
+  const centeredQueueWindow = useMemo(() => {
+    const curIdx = currentTrack
+      ? queue.findIndex((t) => t.id === currentTrack.id)
+      : 0;
+    const start = Math.max(0, curIdx - 10);
+    return queue.slice(start, start + 100);
+  }, [queue, currentTrack?.id]);
+
+  // Persistent YouTube Stage positioning mode:
+  // 1. Inside Center Studio Console screen slot (when expanded)
+  // 2. Compact floating stage (when minimized to bottom bar & not hidden; shifts cleanly alongside Queue/Recent drawer)
+  // 3. Offscreen 1px hidden (only when player closed or stage minimized via ChevronDown/Tv toggle)
+  const ytDockedInsideConsole = Boolean(
+    currentTrack && hasAnyYtDeck && studioConsoleOpen && stageRect
+  );
+  const ytFloatingCorner = Boolean(
+    currentTrack && hasAnyYtDeck && !studioConsoleOpen && !ytDockMinimized
+  );
 
   return (
     <>
@@ -1421,139 +2066,966 @@ export function PlayerBar({
       {/* Silent Top-Level Keep-Alive Audio for OS MediaSession & YouTube Background Persistence */}
       <audio ref={keepAliveAudioRef} loop playsInline preload="auto" aria-hidden="true" />
 
-      {/* Non-blocking Dual-Deck YouTube Mini-Player Dock (supports 8s crossfade across all combinations) */}
-      {hasAnyYtDeck && displayedYtTrack ? (
-        <aside
-          aria-label="YouTube Mini Player"
-          className={`fixed left-3 right-3 sm:left-auto sm:right-6 z-40 bottom-28 lg:bottom-24 sm:w-[320px] max-w-[340px] ml-auto rounded-2xl bg-[#12121A]/95 backdrop-blur-xl border border-white/10 shadow-2xl overflow-hidden transition-transform duration-200 ${
-            ytDockMinimized ? 'translate-y-2 opacity-90' : 'translate-y-0 opacity-100'
-          }`}
-        >
-          <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-white/[0.08]">
+      {/* Persistent Bajao-Style 16:9 YouTube Stage Player (NEVER unmounts between Console & Docked views!) */}
+      <aside
+        aria-label="YouTube Stage Player"
+        aria-hidden={!ytDockedInsideConsole && !ytFloatingCorner}
+        style={
+          ytDockedInsideConsole && stageRect
+            ? {
+                top: `${stageRect.top}px`,
+                left: `${stageRect.left}px`,
+                width: `${stageRect.width}px`,
+                height: `${stageRect.height}px`,
+              }
+            : undefined
+        }
+        className={
+          ytDockedInsideConsole
+            ? 'fixed z-[60] rounded-xl overflow-hidden bg-[#07070B]'
+            : ytFloatingCorner
+              ? minimizedDrawerTab !== null
+                ? 'fixed z-40 right-2 left-auto w-[212px] bottom-[calc(184px+min(26dvh,200px)+8px)] md:bottom-[184px] md:right-[384px] md:w-[340px] lg:bottom-[94px] lg:right-[410px] lg:w-[372px] ml-auto rounded-2xl bg-[#11111A]/95 backdrop-blur-2xl border border-violet-500/30 shadow-[0_24px_70px_-15px_rgba(15,10,40,0.92)] overflow-hidden transition-all duration-200'
+                : 'fixed left-2 right-2 sm:left-auto sm:right-6 z-40 bottom-[184px] lg:bottom-[94px] sm:w-[372px] xl:w-[404px] ml-auto rounded-2xl bg-[#11111A]/95 backdrop-blur-2xl border border-violet-500/30 shadow-[0_24px_70px_-15px_rgba(15,10,40,0.92)] overflow-hidden transition-all duration-200'
+              : 'pointer-events-none opacity-0 fixed -left-[9999px] top-0 w-px h-px overflow-hidden'
+        }
+      >
+        {/* Mini Header shown only in floating corner mode (when Center Console is minimized) */}
+        {ytFloatingCorner && displayedYtTrack && currentTrack ? (
+          <div className="flex items-center justify-between gap-2 px-3.5 py-2 border-b border-white/[0.08] bg-gradient-to-r from-violet-950/35 to-blue-950/20">
             <div className="min-w-0 flex-1">
-              <p className="text-xs font-semibold text-white truncate">
+              <div className="flex items-center gap-2 text-[11px] font-medium">
+                <span className="text-blue-300 truncate">
+                  {crossfadeStatus
+                    ? `Crossfading · ${crossfadeStatus.remainingSec}s`
+                    : ytBuffering
+                      ? 'Loading Stream'
+                      : isPlaying
+                        ? 'Now Playing'
+                        : 'Paused'}
+                </span>
+                {nextTrackPreview ? (
+                  <>
+                    <span aria-hidden="true" className="text-slate-600">
+                      ·
+                    </span>
+                    <span className="text-slate-400 truncate">
+                      Next: {nextTrackPreview.title}
+                    </span>
+                  </>
+                ) : null}
+              </div>
+              <p className="text-xs font-semibold text-white truncate mt-0.5">
                 {displayedYtTrack.title}
               </p>
-              <p className="text-[11px] text-blue-300 truncate">
-                {crossfadeStatus
-                  ? `Crossfading to ${crossfadeStatus.nextTitle} · ${crossfadeStatus.remainingSec}s`
-                  : 'YouTube Mix · 8s Gapless Crossfade'}
-              </p>
             </div>
+
             <button
               type="button"
-              onClick={() => setYtDockMinimized((prev) => !prev)}
-              aria-label={ytDockMinimized ? 'Expand YouTube player' : 'Minimize YouTube player'}
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.06]"
+              onClick={() => onSetStudioConsoleOpen(true)}
+              aria-label="Open Studio Console"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-300 hover:text-white hover:bg-white/[0.08]"
             >
-              <ChevronDown
-                className={`w-4 h-4 transition-transform ${ytDockMinimized ? 'rotate-180' : ''}`}
-              />
+              <Maximize2 className="w-3.5 h-3.5" />
             </button>
+
+            <button
+              type="button"
+              onClick={() => setYtDockMinimized(true)}
+              aria-label="Hide video stage"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.08]"
+            >
+              <ChevronDown className="w-4 h-4" />
+            </button>
+          </div>
+        ) : null}
+
+        <div
+          className={`relative w-full bg-[#07070B] overflow-hidden ${
+            ytDockedInsideConsole ? 'h-full' : 'aspect-video'
+          }`}
+        >
+          {displayedYtTrack ? (
+            <div className="absolute inset-0 z-0">
+              <ArtworkImage
+                src={displayedYtTrack.coverUrl}
+                alt={displayedYtTrack.title}
+                className="w-full h-full object-cover opacity-55"
+              />
+            </div>
+          ) : null}
+
+          <div
+            ref={ytHost0Ref}
+            className={`absolute inset-0 w-full h-full transition-opacity duration-700 ${
+              (visualCrossfadeYtIdx ?? activeYtDeckIdx) === 0
+                ? 'opacity-100 z-[2]'
+                : 'opacity-0 z-[1] pointer-events-none'
+            }`}
+          />
+          <div
+            ref={ytHost1Ref}
+            className={`absolute inset-0 w-full h-full transition-opacity duration-700 ${
+              (visualCrossfadeYtIdx ?? activeYtDeckIdx) === 1
+                ? 'opacity-100 z-[2]'
+                : 'opacity-0 z-[1] pointer-events-none'
+            }`}
+          />
+
+          {isCurrentYouTube && isPlaying && ytBuffering ? (
+            <div className="absolute inset-0 z-[15] flex flex-col items-center justify-center gap-2 bg-black/55 backdrop-blur-[2px] pointer-events-none">
+              <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
+              <span className="text-[11px] font-medium text-slate-200">
+                Loading stream...
+              </span>
+            </div>
+          ) : null}
+
+          {/* Transparent Click Shield (tap to Play/Pause) with Bottom-Right Skip-Ad Passthrough Cutout */}
+          {currentTrack && hasAnyYtDeck ? (
+            <>
+              <button
+                type="button"
+                onClick={handleTogglePlayPause}
+                aria-label={isPlaying ? 'Pause video playback' : 'Play video playback'}
+                className="absolute top-0 left-0 right-0 bottom-[58px] z-20 cursor-pointer bg-transparent focus-visible:outline-none"
+              />
+              <button
+                type="button"
+                onClick={handleTogglePlayPause}
+                aria-label={isPlaying ? 'Pause video playback' : 'Play video playback'}
+                className="absolute bottom-0 left-0 right-[138px] h-[58px] z-20 cursor-pointer bg-transparent focus-visible:outline-none"
+              />
+            </>
+          ) : null}
+        </div>
+      </aside>
+
+      {/* BAJAO-INSPIRED CENTER STUDIO MUSIC PLAYER CONSOLE (Midnight Violet-Blue Theme) */}
+      {currentTrack && studioConsoleOpen ? (
+        <div
+          ref={consoleScrollRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label="GullyGroove Studio Player"
+          className="fixed inset-0 z-50 flex items-start justify-center bg-[#06060B]/88 backdrop-blur-2xl p-2 sm:p-5 overflow-y-auto"
+        >
+          <div
+            className={`w-full flex flex-col lg:flex-row items-stretch justify-center gap-4 my-auto transition-all duration-200 ${
+              consoleDrawerTab !== null ? 'max-w-5xl' : 'max-w-2xl xl:max-w-3xl'
+            }`}
+          >
+            {/* Main Boombox Center Stage Console */}
+            <section className="flex-1 min-w-0 rounded-3xl bg-gradient-to-b from-[#131320] via-[#0E0E17] to-[#090910] border border-violet-500/25 shadow-[0_32px_100px_-20px_rgba(124,58,237,0.48)] overflow-hidden">
+              {/* Top Console Status & Window Controls */}
+              <div className="flex items-center justify-between gap-2 px-4 sm:px-5 py-3 border-b border-white/[0.08] bg-gradient-to-r from-violet-950/35 via-[#12121D] to-blue-950/25">
+                <div className="min-w-0 flex items-center gap-2 text-xs">
+                  <span className="font-semibold text-blue-300 truncate">
+                    {crossfadeStatus
+                      ? `Crossfading · ${crossfadeStatus.remainingSec}s`
+                      : hookMode
+                        ? 'Auto-Cut Hook Mode'
+                        : isPlaying
+                          ? 'Now Playing'
+                          : 'Paused'}
+                  </span>
+                  <span aria-hidden="true" className="text-slate-600">
+                    ·
+                  </span>
+                  <span className="text-slate-400 truncate">
+                    {currentTrack.album}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setConsoleDrawerTab((prev) => (prev === 'queue' ? null : 'queue'))
+                    }
+                    aria-label="Toggle playlist queue"
+                    className={`inline-flex h-9 items-center gap-1.5 px-3 rounded-xl text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
+                      consoleDrawerTab === 'queue'
+                        ? 'bg-gradient-to-r from-violet-600/35 to-blue-500/30 text-white border border-violet-400/40'
+                        : 'text-slate-300 hover:text-white hover:bg-white/[0.06]'
+                    }`}
+                  >
+                    <ListMusic className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Queue</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setConsoleDrawerTab((prev) =>
+                        prev === 'recent' ? null : 'recent'
+                      )
+                    }
+                    aria-label="Toggle recently played"
+                    className={`inline-flex h-9 items-center gap-1.5 px-3 rounded-xl text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
+                      consoleDrawerTab === 'recent'
+                        ? 'bg-gradient-to-r from-violet-600/35 to-blue-500/30 text-white border border-violet-400/40'
+                        : 'text-slate-300 hover:text-white hover:bg-white/[0.06]'
+                    }`}
+                  >
+                    <History className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Recent</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => onSetStudioConsoleOpen(false)}
+                    aria-label="Minimize to bottom player"
+                    title="Minimize to bottom player"
+                    className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-300 hover:text-white hover:bg-white/[0.07] transition-colors"
+                  >
+                    <ChevronDown className="w-4 h-4" />
+                  </button>
+
+                  {onClosePlayer ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        userPausedRef.current = true;
+                        cancelTransition(true);
+                        onClosePlayer();
+                      }}
+                      aria-label="Close music player"
+                      title="Close player"
+                      className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.07] transition-colors"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+
+              {/* Center Boombox Stage + Track Info + Waveform + Transport (ALWAYS visible even when Queue/Recent is open) */}
+              <div className="p-3 sm:p-5 space-y-4">
+                  {/* Boombox Frame: Left EQ + Center Video/Artwork Stage + Right EQ */}
+                  <div className="flex items-stretch gap-2.5 sm:gap-3.5 rounded-2xl bg-[#0B0B13] border border-white/[0.07] p-2 sm:p-3">
+                    <BoomboxEqRack side="left" isPlaying={isPlaying} />
+
+                    {/* Center Stage Slot (YouTube IFrame docks directly over this box!) */}
+                    <div className="flex-1 min-w-0 flex flex-col gap-2">
+                      <div
+                        ref={stageSlotRef}
+                        className="relative aspect-video w-full rounded-xl overflow-hidden bg-[#07070B] border border-violet-500/25 shadow-[0_0_40px_-14px_rgba(124,58,237,0.5)]"
+                      >
+                        {!isCurrentYouTube ? (
+                          <button
+                            type="button"
+                            onClick={handleTogglePlayPause}
+                            aria-label={isPlaying ? 'Pause audio' : 'Play audio'}
+                            className="relative w-full h-full flex items-center justify-center group focus-visible:outline-none"
+                          >
+                            <ArtworkImage
+                              src={currentTrack.coverUrl}
+                              alt={currentTrack.title}
+                              className="absolute inset-0 w-full h-full object-cover opacity-35 blur-md scale-110"
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-[#09090D] via-[#09090D]/55 to-transparent" />
+                            <div className="relative z-10 flex items-center gap-4 px-4">
+                              <div className="h-24 w-24 sm:h-32 sm:w-32 shrink-0 overflow-hidden rounded-2xl border border-white/15 shadow-2xl">
+                                <ArtworkImage
+                                  src={currentTrack.coverUrl}
+                                  alt={currentTrack.title}
+                                />
+                              </div>
+                            </div>
+                          </button>
+                        ) : null}
+                      </div>
+
+                      {/* Next-Up Preview Strip Inside Boombox */}
+                      {nextTrackPreview ? (
+                        <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.05] text-[11px]">
+                          <div className="min-w-0 flex items-center gap-2">
+                            <span className="font-mono-tabular font-semibold text-violet-300 shrink-0">
+                              NEXT
+                            </span>
+                            <span className="text-slate-200 font-medium truncate">
+                              {nextTrackPreview.title}
+                            </span>
+                            <span aria-hidden="true" className="text-slate-600">
+                              ·
+                            </span>
+                            <span className="text-slate-400 truncate hidden sm:inline">
+                              {nextTrackPreview.artist}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={onNext}
+                            className="text-blue-400 hover:text-blue-300 font-medium whitespace-nowrap shrink-0"
+                          >
+                            Skip
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <BoomboxEqRack side="right" isPlaying={isPlaying} />
+                  </div>
+
+                  {/* Song Thumbnail, Title, Artist Information & Actions */}
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-[#141422]">
+                        <ArtworkImage
+                          src={currentTrack.coverUrl}
+                          alt={currentTrack.title}
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h2 className="font-display text-base sm:text-lg font-bold text-white truncate">
+                          {currentTrack.title}
+                        </h2>
+                        <p className="text-xs text-slate-300 truncate mt-0.5">
+                          {currentTrack.artist}
+                        </p>
+                        <p className="text-[11px] text-slate-400 truncate mt-0.5 font-mono-tabular">
+                          {currentTrack.language}
+                          <span className="mx-1.5 text-slate-600" aria-hidden="true">
+                            ·
+                          </span>
+                          {currentTrack.bpm} BPM
+                          <span className="mx-1.5 text-slate-600" aria-hidden="true">
+                            ·
+                          </span>
+                          <span className="text-blue-400 font-sans">
+                            {currentTrack.licenseType}
+                          </span>
+                        </p>
+                        {audioError ? (
+                          <p className="text-[11px] text-amber-400 truncate mt-0.5">
+                            {audioError}
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => onToggleFavorite(currentTrack.id)}
+                        aria-label={
+                          isFavorite ? 'Remove from favorites' : 'Add to favorites'
+                        }
+                        className={`flex h-10 w-10 items-center justify-center rounded-xl border transition-colors ${
+                          isFavorite
+                            ? 'bg-violet-500/20 border-violet-400/40 text-violet-300'
+                            : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <Heart
+                          className={`w-4 h-4 ${isFavorite ? 'fill-current' : ''}`}
+                        />
+                      </button>
+
+                      {currentTrack.externalUrl ? (
+                        <a
+                          href={currentTrack.externalUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label="Open on YouTube"
+                          title="Open original source"
+                          className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/[0.04] border border-white/[0.08] text-slate-400 hover:text-white transition-colors"
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                        </a>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  {/* Interactive Bajao-Inspired Waveform & Hook Scrubber */}
+                  <StudioWaveformScrubber
+                    trackId={currentTrack.id}
+                    currentTime={currentTime}
+                    duration={effectiveDuration}
+                    hookMode={hookMode}
+                    hookStartSec={activeHookWindow.startSec}
+                    hookEndSec={activeHookWindow.endSec}
+                    hasCustomHook={activeHookWindow.isCustom}
+                    onSeek={handleSeek}
+                    onUpdateHook={handleUpdateHook}
+                    onResetHook={handleResetHook}
+                  />
+
+                  {/* Main Transport Deck: Hook Mode, Shuffle, Prev, Play/Pause, Next, Repeat */}
+                  <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1">
+                    {/* Left: Hook-Based Playback Mode Toggle */}
+                    <button
+                      type="button"
+                      onClick={handleToggleHookMode}
+                      aria-pressed={hookMode}
+                      className={`inline-flex h-11 items-center gap-2 px-3.5 rounded-xl border text-xs font-semibold transition-all whitespace-nowrap shrink-0 ${
+                        hookMode
+                          ? 'bg-gradient-to-r from-violet-600/35 to-blue-500/30 border-violet-400/55 text-white shadow-md shadow-violet-950/50'
+                          : 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:text-white hover:border-violet-500/35'
+                      }`}
+                    >
+                      <Scissors className="w-3.5 h-3.5 text-violet-300" />
+                      <span>{hookMode ? 'Hook Mode: On' : 'Full Song'}</span>
+                    </button>
+
+                    {/* Center: Transport Controls */}
+                    <div className="flex items-center gap-1.5 sm:gap-2.5 mx-auto">
+                      <button
+                        type="button"
+                        onClick={onToggleShuffle}
+                        aria-label="Toggle shuffle"
+                        aria-pressed={shuffle}
+                        className={`flex h-11 w-11 items-center justify-center rounded-xl transition-colors ${
+                          shuffle
+                            ? 'bg-violet-500/20 text-violet-300'
+                            : 'text-slate-400 hover:text-white hover:bg-white/[0.05]'
+                        }`}
+                      >
+                        <Shuffle className="w-4 h-4" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={onPrev}
+                        aria-label="Previous track"
+                        className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/[0.05] text-slate-200 hover:text-white hover:bg-white/[0.1] transition-colors"
+                      >
+                        <SkipBack className="w-4 h-4 fill-current" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleTogglePlayPause}
+                        aria-label={isPlaying ? 'Pause' : 'Play'}
+                        className="inline-flex h-12 min-w-[116px] sm:min-w-[136px] items-center justify-center gap-2 px-5 rounded-2xl bg-gradient-to-r from-violet-600 to-blue-500 text-sm font-bold text-white shadow-lg shadow-violet-950/60 hover:opacity-95 active:scale-[0.98] transition-all whitespace-nowrap shrink-0"
+                      >
+                        {isPlaying ? (
+                          <>
+                            <Pause className="w-4 h-4 fill-current" />
+                            <span>Pause</span>
+                          </>
+                        ) : (
+                          <>
+                            <Play className="w-4 h-4 fill-current" />
+                            <span>Play</span>
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={onNext}
+                        aria-label="Next track"
+                        className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/[0.05] text-slate-200 hover:text-white hover:bg-white/[0.1] transition-colors"
+                      >
+                        <SkipForward className="w-4 h-4 fill-current" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={onCycleRepeat}
+                        aria-label={`Repeat mode: ${repeatMode}`}
+                        className={`flex h-11 w-11 items-center justify-center rounded-xl transition-colors ${
+                          repeatMode !== 'off'
+                            ? 'bg-blue-500/20 text-blue-300'
+                            : 'text-slate-400 hover:text-white hover:bg-white/[0.05]'
+                        }`}
+                      >
+                        {repeatMode === 'one' ? (
+                          <Repeat1 className="w-4 h-4" />
+                        ) : (
+                          <Repeat className="w-4 h-4" />
+                        )}
+                      </button>
+                    </div>
+
+                    {/* Right: Volume Control (where supported) */}
+                    <div className="flex items-center gap-2 ml-auto sm:ml-0">
+                      <button
+                        type="button"
+                        onClick={() => setMuted((prev) => !prev)}
+                        aria-label={muted ? 'Unmute audio' : 'Mute audio'}
+                        className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/[0.04] border border-white/[0.08] text-slate-300 hover:text-white transition-colors"
+                      >
+                        {muted || volume === 0 ? (
+                          <VolumeX className="w-4 h-4" />
+                        ) : (
+                          <Volume2 className="w-4 h-4" />
+                        )}
+                      </button>
+                      <input
+                        type="range"
+                        aria-label="Volume"
+                        min={0}
+                        max={1}
+                        step={0.02}
+                        value={muted ? 0 : volume}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          setVolume(val);
+                          if (val > 0 && muted) setMuted(false);
+                        }}
+                        className="gg-range w-20 sm:w-24"
+                        style={{
+                          background: `linear-gradient(to right, #8B5CF6 0%, #3B82F6 ${
+                            (muted ? 0 : volume) * 100
+                          }%, rgba(255,255,255,0.14) ${
+                            (muted ? 0 : volume) * 100
+                          }%, rgba(255,255,255,0.14) 100%)`,
+                          borderRadius: '9999px',
+                          height: '4px',
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {isCoarsePointer ? (
+                    <p className="text-[11px] text-center text-slate-500">
+                      Device hardware keys also control system media volume.
+                    </p>
+                  ) : null}
+
+                  {/* Bottom Studio Strip: Missing Song Request + Quick Queue / Recent Counts */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/[0.07] text-xs">
+                    <div className="flex items-center gap-2 text-slate-400 font-mono-tabular">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setConsoleDrawerTab((prev) =>
+                            prev === 'queue' ? null : 'queue'
+                          )
+                        }
+                        className="hover:text-white transition-colors"
+                      >
+                        Queue: {queue.length}
+                      </button>
+                      <span aria-hidden="true" className="text-slate-600">
+                        ·
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setConsoleDrawerTab((prev) =>
+                            prev === 'recent' ? null : 'recent'
+                          )
+                        }
+                        className="hover:text-white transition-colors"
+                      >
+                        Recent: {recentlyPlayed.length}
+                      </button>
+                    </div>
+
+                  {onOpenTuneRequest ? (
+                      <button
+                        type="button"
+                        onClick={onOpenTuneRequest}
+                        className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-300 hover:text-white transition-colors whitespace-nowrap shrink-0"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Song missing? Tune Request</span>
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+
+              {/* Mobile & Narrow Inline Queue / Recently Played Drawer (rendered BELOW stage & controls so player never disappears!) */}
+              {consoleDrawerTab !== null && !isDesktopViewport ? (
+                <div className="border-t border-violet-500/20 bg-[#0A0A12]/95 p-3 sm:p-4 space-y-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1 p-1 rounded-xl bg-[#11111C] border border-white/[0.07]">
+                      <button
+                        type="button"
+                        onClick={() => setConsoleDrawerTab('queue')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
+                          consoleDrawerTab === 'queue'
+                            ? 'bg-gradient-to-r from-violet-600 to-blue-500 text-white'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        Queue ({queue.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConsoleDrawerTab('recent')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
+                          consoleDrawerTab === 'recent'
+                            ? 'bg-gradient-to-r from-violet-600 to-blue-500 text-white'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        Recent ({recentlyPlayed.length})
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {consoleDrawerTab === 'recent' &&
+                      recentlyPlayed.length > 0 &&
+                      onClearRecentlyPlayed ? (
+                        <button
+                          type="button"
+                          onClick={onClearRecentlyPlayed}
+                          className="text-xs font-medium text-blue-400 hover:text-blue-300"
+                        >
+                          Clear
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => setConsoleDrawerTab(null)}
+                        aria-label="Close drawer"
+                        className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.07]"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="max-h-[220px] overflow-y-auto space-y-1 pr-1">
+                    {consoleDrawerTab === 'queue' ? (
+                      centeredQueueWindow.map((item) => {
+                        const active = item.id === currentTrack.id;
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => onSelectTrack(item)}
+                            className={`w-full flex items-center gap-3 p-2 rounded-xl text-left transition-colors ${
+                              active
+                                ? 'bg-violet-500/20 text-white border border-violet-500/30'
+                                : 'hover:bg-white/[0.05] text-slate-300 border border-transparent'
+                            }`}
+                          >
+                            <div className="h-9 w-9 shrink-0 overflow-hidden rounded-lg">
+                              <ArtworkImage src={item.coverUrl} alt={item.title} />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-semibold truncate">
+                                {item.title}
+                              </p>
+                              <p className="text-[11px] text-slate-400 truncate">
+                                {item.artist}
+                              </p>
+                            </div>
+                            <span className="text-[11px] font-mono-tabular text-slate-500">
+                              {item.durationSec > 0
+                                ? formatDuration(item.durationSec)
+                                : 'YT'}
+                            </span>
+                          </button>
+                        );
+                      })
+                    ) : recentlyPlayed.length === 0 ? (
+                      <div className="py-8 text-center text-xs text-slate-400">
+                        Songs you play will appear here for instant replay.
+                      </div>
+                    ) : (
+                      recentlyPlayed.map((item) => {
+                        const active = item.id === currentTrack.id;
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => onSelectTrack(item)}
+                            className={`w-full flex items-center gap-3 p-2 rounded-xl text-left transition-colors ${
+                              active
+                                ? 'bg-violet-500/20 text-white border border-violet-500/30'
+                                : 'hover:bg-white/[0.05] text-slate-300 border border-transparent'
+                            }`}
+                          >
+                            <div className="h-9 w-9 shrink-0 overflow-hidden rounded-lg">
+                              <ArtworkImage src={item.coverUrl} alt={item.title} />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-semibold truncate">
+                                {item.title}
+                              </p>
+                              <p className="text-[11px] text-slate-400 truncate">
+                                {item.artist}
+                              </p>
+                            </div>
+                            <Clock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              ) : null}
+            </section>
+
+            {/* Desktop Side Drawer for Playlist Queue & Recently Played */}
+            {consoleDrawerTab !== null && isDesktopViewport ? (
+              <aside
+                aria-label="Queue and Recently Played"
+                className="w-80 xl:w-88 shrink-0 rounded-3xl bg-[#10101A]/95 border border-violet-500/20 shadow-2xl flex flex-col max-h-[640px] overflow-hidden"
+              >
+                <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-white/[0.08]">
+                  <div className="flex items-center gap-1 p-1 rounded-xl bg-[#09090F] border border-white/[0.06]">
+                    <button
+                      type="button"
+                      onClick={() => setConsoleDrawerTab('queue')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
+                        consoleDrawerTab === 'queue'
+                          ? 'bg-gradient-to-r from-violet-600 to-blue-500 text-white'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Queue ({queue.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConsoleDrawerTab('recent')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
+                        consoleDrawerTab === 'recent'
+                          ? 'bg-gradient-to-r from-violet-600 to-blue-500 text-white'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Recent ({recentlyPlayed.length})
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setConsoleDrawerTab(null)}
+                    aria-label="Close drawer"
+                    className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.06]"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {consoleDrawerTab === 'recent' &&
+                recentlyPlayed.length > 0 &&
+                onClearRecentlyPlayed ? (
+                  <div className="flex items-center justify-between px-4 py-2 border-b border-white/[0.05] text-[11px] text-slate-400">
+                    <span>Recently Played History</span>
+                    <button
+                      type="button"
+                      onClick={onClearRecentlyPlayed}
+                      className="text-blue-400 hover:text-blue-300"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                ) : null}
+
+                <div className="flex-1 overflow-y-auto p-2.5 space-y-1">
+                  {consoleDrawerTab === 'queue' ? (
+                    centeredQueueWindow.map((item) => {
+                      const active = item.id === currentTrack.id;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => onSelectTrack(item)}
+                          className={`w-full flex items-center gap-3 p-2 rounded-xl text-left transition-colors ${
+                            active
+                              ? 'bg-violet-500/20 text-white border border-violet-500/30'
+                              : 'hover:bg-white/[0.05] text-slate-300 border border-transparent'
+                          }`}
+                        >
+                          <div className="h-9 w-9 shrink-0 overflow-hidden rounded-lg">
+                            <ArtworkImage src={item.coverUrl} alt={item.title} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-medium truncate">
+                              {item.title}
+                            </p>
+                            <p className="text-[11px] text-slate-400 truncate">
+                              {item.artist}
+                            </p>
+                          </div>
+                          <span className="text-[11px] font-mono-tabular text-slate-500">
+                            {item.durationSec > 0
+                              ? formatDuration(item.durationSec)
+                              : 'YT'}
+                          </span>
+                        </button>
+                      );
+                    })
+                  ) : recentlyPlayed.length === 0 ? (
+                    <div className="py-12 px-4 text-center text-xs text-slate-400">
+                      Tracks you play appear here for quick replay.
+                    </div>
+                  ) : (
+                    recentlyPlayed.map((item) => {
+                      const active = item.id === currentTrack.id;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => onSelectTrack(item)}
+                          className={`w-full flex items-center gap-3 p-2 rounded-xl text-left transition-colors ${
+                            active
+                              ? 'bg-violet-500/20 text-white border border-violet-500/30'
+                              : 'hover:bg-white/[0.05] text-slate-300 border border-transparent'
+                          }`}
+                        >
+                          <div className="h-9 w-9 shrink-0 overflow-hidden rounded-lg">
+                            <ArtworkImage src={item.coverUrl} alt={item.title} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-medium truncate">
+                              {item.title}
+                            </p>
+                            <p className="text-[11px] text-slate-400 truncate">
+                              {item.artist}
+                            </p>
+                          </div>
+                          <Clock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </aside>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {/* Unified Queue & Recently Played Floating Drawer (Minimized View — ALL Screen Sizes, Never Hides Player!) */}
+      {currentTrack && minimizedDrawerTab !== null && !studioConsoleOpen ? (
+        <aside
+          aria-label="Queue and Recently Played"
+          className="fixed z-40 left-2 right-2 bottom-[184px] h-[min(26dvh,200px)] md:h-auto md:left-auto md:right-6 md:w-[348px] lg:w-[372px] lg:bottom-[94px] md:max-h-[46vh] lg:max-h-[58vh] flex flex-col rounded-2xl bg-gradient-to-b from-[#131320]/96 to-[#0A0A12]/96 backdrop-blur-2xl border border-violet-500/30 shadow-[0_24px_70px_-15px_rgba(124,58,237,0.48)] overflow-hidden"
+        >
+          <div className="flex items-center justify-between gap-2 px-3.5 py-2.5 border-b border-white/[0.08]">
+            <div className="flex items-center gap-1 p-1 rounded-xl bg-[#090910] border border-white/[0.06]">
+              <button
+                type="button"
+                onClick={() => setMinimizedDrawerTab('queue')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
+                  minimizedDrawerTab === 'queue'
+                    ? 'bg-gradient-to-r from-violet-600 to-blue-500 text-white'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Queue ({queue.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setMinimizedDrawerTab('recent')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
+                  minimizedDrawerTab === 'recent'
+                    ? 'bg-gradient-to-r from-violet-600 to-blue-500 text-white'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Recent ({recentlyPlayed.length})
+              </button>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              {minimizedDrawerTab === 'recent' &&
+              recentlyPlayed.length > 0 &&
+              onClearRecentlyPlayed ? (
+                <button
+                  type="button"
+                  onClick={onClearRecentlyPlayed}
+                  className="text-[11px] font-medium text-blue-400 hover:text-blue-300 px-1.5"
+                >
+                  Clear
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => setMinimizedDrawerTab(null)}
+                aria-label="Close drawer"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.06]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-2 space-y-1">
+            {minimizedDrawerTab === 'queue' ? (
+              centeredQueueWindow.map((item) => {
+                const active = item.id === currentTrack.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => onSelectTrack(item)}
+                    className={`w-full flex items-center gap-3 p-2 rounded-xl text-left transition-colors ${
+                      active
+                        ? 'bg-violet-500/20 text-white border border-violet-500/30'
+                        : 'hover:bg-white/[0.05] text-slate-300 border border-transparent'
+                    }`}
+                  >
+                    <div className="h-9 w-9 shrink-0 overflow-hidden rounded-lg">
+                      <ArtworkImage src={item.coverUrl} alt={item.title} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium truncate">{item.title}</p>
+                      <p className="text-[11px] text-slate-400 truncate">
+                        {item.artist}
+                      </p>
+                    </div>
+                    <span className="text-[11px] font-mono-tabular text-slate-500">
+                      {item.durationSec > 0 ? formatDuration(item.durationSec) : 'YT'}
+                    </span>
+                  </button>
+                );
+              })
+            ) : recentlyPlayed.length === 0 ? (
+              <div className="py-10 px-4 text-center text-xs text-slate-400">
+                Tracks you play appear here for instant replay.
+              </div>
+            ) : (
+              recentlyPlayed.map((item) => {
+                const active = item.id === currentTrack.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => onSelectTrack(item)}
+                    className={`w-full flex items-center gap-3 p-2 rounded-xl text-left transition-colors ${
+                      active
+                        ? 'bg-violet-500/20 text-white border border-violet-500/30'
+                        : 'hover:bg-white/[0.05] text-slate-300 border border-transparent'
+                    }`}
+                  >
+                    <div className="h-9 w-9 shrink-0 overflow-hidden rounded-lg">
+                      <ArtworkImage src={item.coverUrl} alt={item.title} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium truncate">{item.title}</p>
+                      <p className="text-[11px] text-slate-400 truncate">
+                        {item.artist}
+                      </p>
+                    </div>
+                    <Clock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </aside>
+      ) : null}
+
+      {/* Desktop Fixed Bottom Studio Docked Player Bar (Midnight Violet-Blue unified look) */}
+      {currentTrack && !studioConsoleOpen ? (
+        <footer className="hidden lg:flex fixed bottom-0 left-0 right-0 z-40 h-[84px] items-center justify-between gap-5 px-6 bg-gradient-to-r from-[#131320]/96 via-[#0D0D17]/96 to-[#11111E]/96 backdrop-blur-2xl border-t border-violet-500/25 shadow-[0_-12px_40px_-12px_rgba(124,58,237,0.35)]">
+          {/* Left: Current Track Info (clickable to reopen Center Studio Console) */}
+          <div className="flex items-center gap-3 w-72 xl:w-80 min-w-0">
             <button
               type="button"
               onClick={() => {
-                userPausedRef.current = true;
-                cancelTransition(true);
-                onSetPlayingState(false);
-                setYtDockMinimized(true);
+                setMinimizedDrawerTab(null);
+                onSetStudioConsoleOpen(true);
               }}
-              aria-label="Pause and minimize YouTube player"
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.06]"
+              className="flex items-center gap-3 min-w-0 flex-1 text-left group focus-visible:outline-none"
+              title="Open Center Studio Player"
             >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-
-          <div
-            className={`relative w-full bg-black transition-all duration-200 ${
-              ytDockMinimized ? 'h-[1px] opacity-0 pointer-events-none overflow-hidden' : 'h-[200px]'
-            }`}
-          >
-            <div
-              ref={ytHost0Ref}
-              className={`absolute inset-0 w-full h-full transition-opacity duration-700 ${
-                (visualCrossfadeYtIdx ?? activeYtDeckIdx) === 0
-                  ? 'opacity-100 z-10'
-                  : 'opacity-0 z-0 pointer-events-none'
-              }`}
-            />
-            <div
-              ref={ytHost1Ref}
-              className={`absolute inset-0 w-full h-full transition-opacity duration-700 ${
-                (visualCrossfadeYtIdx ?? activeYtDeckIdx) === 1
-                  ? 'opacity-100 z-10'
-                  : 'opacity-0 z-0 pointer-events-none'
-              }`}
-            />
-          </div>
-        </aside>
-      ) : null}
-
-      {/* Desktop Queue Popover */}
-      {queueOpen ? (
-        <aside
-          aria-label="Up Next Queue"
-          className="hidden lg:flex fixed bottom-24 right-6 z-40 w-88 max-h-[60vh] flex-col rounded-2xl bg-[#12121A]/95 backdrop-blur-xl border border-white/10 shadow-2xl overflow-hidden"
-        >
-          <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.08]">
-            <div>
-              <h3 className="font-display text-sm font-semibold text-white">Up Next Queue</h3>
-              <p className="text-[11px] text-slate-400 font-mono-tabular">
-                {queue.length} tracks · 8s gapless crossfade
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setQueueOpen(false)}
-              aria-label="Close queue"
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.06]"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto p-2 space-y-1">
-            {queue.map((item) => {
-              const active = item.id === currentTrack?.id;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => onSelectTrack(item)}
-                  className={`w-full flex items-center gap-3 p-2 rounded-lg text-left transition-colors ${
-                    active
-                      ? 'bg-violet-500/15 text-white'
-                      : 'hover:bg-white/[0.05] text-slate-300'
-                  }`}
-                >
-                  <div className="h-9 w-9 shrink-0 overflow-hidden rounded">
-                    <ArtworkImage src={item.coverUrl} alt={item.title} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-medium truncate">{item.title}</p>
-                    <p className="text-[11px] text-slate-400 truncate">{item.artist}</p>
-                  </div>
-                  <span className="text-[11px] font-mono-tabular text-slate-500">
-                    {item.durationSec > 0 ? formatDuration(item.durationSec) : 'YouTube'}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </aside>
-      ) : null}
-
-      {/* Desktop Fixed Bottom Player Bar */}
-      <footer className="hidden lg:flex fixed bottom-0 left-0 right-0 z-40 h-20 items-center justify-between gap-6 px-6 bg-[#0B0B10]/95 backdrop-blur-xl border-t border-white/[0.08]">
-        {/* Left: Current Track Info */}
-        <div className="flex items-center gap-3.5 w-80 min-w-0">
-          {currentTrack ? (
-            <>
-              <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-[#181822]">
+              <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-[#181822] border border-violet-500/30 shadow-md shadow-violet-950/50">
                 <ArtworkImage src={currentTrack.coverUrl} alt={currentTrack.title} />
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-white truncate">
+                <p className="font-display text-sm font-semibold text-white truncate group-hover:text-violet-300 transition-colors">
                   {currentTrack.title}
                 </p>
                 <p className="text-xs text-slate-400 truncate mt-0.5">
@@ -1561,7 +3033,9 @@ export function PlayerBar({
                   <span className="mx-1.5 text-slate-600" aria-hidden="true">
                     ·
                   </span>
-                  <span className="text-blue-400">{currentTrack.licenseType}</span>
+                  <span className="text-blue-400">
+                    {hookMode ? 'Hook Mode' : currentTrack.licenseType}
+                  </span>
                 </p>
                 {crossfadeStatus ? (
                   <p className="text-[11px] text-violet-300 truncate font-mono-tabular">
@@ -1571,420 +3045,475 @@ export function PlayerBar({
                   <p className="text-[11px] text-amber-400 truncate">{audioError}</p>
                 ) : null}
               </div>
-              <button
-                type="button"
-                onClick={() => onToggleFavorite(currentTrack.id)}
-                aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-colors ${
-                  isFavorite ? 'text-violet-400' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <Heart className={`w-4 h-4 ${isFavorite ? 'fill-current' : ''}`} />
-              </button>
-            </>
-          ) : (
-            <div className="text-xs text-slate-500">
-              Select any track to start streaming
-            </div>
-          )}
-        </div>
-
-        {/* Center: Controls & Seek Scrubber */}
-        <div className="flex flex-1 max-w-xl flex-col items-center gap-1.5">
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={onToggleShuffle}
-              aria-label="Toggle shuffle"
-              className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
-                shuffle ? 'text-violet-400' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <Shuffle className="w-4 h-4" />
             </button>
-
-            <button
-              type="button"
-              onClick={onPrev}
-              disabled={!currentTrack}
-              aria-label="Previous track"
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-300 hover:text-white disabled:opacity-35 transition-colors"
-            >
-              <SkipBack className="w-4 h-4 fill-current" />
-            </button>
-
-            <button
-              type="button"
-              onClick={handleTogglePlayPause}
-              disabled={!currentTrack}
-              aria-label={isPlaying ? 'Pause' : 'Play'}
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-r from-violet-600 to-blue-500 text-white shadow-md shadow-violet-950/50 transition-transform duration-150 hover:scale-105 active:scale-95 disabled:opacity-40"
-            >
-              {isPlaying ? (
-                <Pause className="w-4 h-4 fill-current" />
-              ) : (
-                <Play className="w-4 h-4 fill-current ml-0.5" />
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={onNext}
-              disabled={!currentTrack}
-              aria-label="Next track"
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-300 hover:text-white disabled:opacity-35 transition-colors"
-            >
-              <SkipForward className="w-4 h-4 fill-current" />
-            </button>
-
-            <button
-              type="button"
-              onClick={onCycleRepeat}
-              aria-label={`Repeat mode: ${repeatMode}`}
-              className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
-                repeatMode !== 'off' ? 'text-blue-400' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              {repeatMode === 'one' ? (
-                <Repeat1 className="w-4 h-4" />
-              ) : (
-                <Repeat className="w-4 h-4" />
-              )}
-            </button>
-          </div>
-
-          <div className="flex w-full items-center gap-2.5">
-            <span className="w-10 text-right text-[11px] font-mono-tabular text-slate-400">
-              {formatDuration(currentTime)}
-            </span>
-            <input
-              type="range"
-              aria-label="Seek audio position"
-              min={0}
-              max={effectiveDuration}
-              step={0.2}
-              value={Math.min(currentTime, effectiveDuration)}
-              onChange={(e) => handleSeek(Number(e.target.value))}
-              disabled={!currentTrack}
-              className="gg-range w-full"
-              style={{
-                background: `linear-gradient(to right, #8B5CF6 0%, #3B82F6 ${progressPct}%, rgba(255,255,255,0.12) ${progressPct}%, rgba(255,255,255,0.12) 100%)`,
-                borderRadius: '9999px',
-                height: '4px',
-              }}
-            />
-            <span className="w-10 text-[11px] font-mono-tabular text-slate-400">
-              {formatDuration(effectiveDuration)}
-            </span>
-          </div>
-        </div>
-
-        {/* Right: Queue & Volume */}
-        <div className="flex items-center justify-end gap-3 w-72">
-          <button
-            type="button"
-            onClick={() => setQueueOpen((prev) => !prev)}
-            aria-label="Toggle playback queue"
-            className={`flex h-10 w-10 items-center justify-center rounded-lg transition-colors ${
-              queueOpen
-                ? 'bg-violet-500/20 text-violet-300'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <ListMusic className="w-4 h-4" />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setMuted((prev) => !prev)}
-            aria-label={muted ? 'Unmute audio' : 'Mute audio'}
-            className="flex h-10 w-10 items-center justify-center rounded-lg text-slate-400 hover:text-white transition-colors"
-          >
-            {muted || volume === 0 ? (
-              <VolumeX className="w-4 h-4" />
-            ) : (
-              <Volume2 className="w-4 h-4" />
-            )}
-          </button>
-
-          <input
-            type="range"
-            aria-label="Volume"
-            min={0}
-            max={1}
-            step={0.02}
-            value={muted ? 0 : volume}
-            onChange={(e) => {
-              const val = Number(e.target.value);
-              setVolume(val);
-              if (val > 0 && muted) setMuted(false);
-            }}
-            className="gg-range w-24"
-            style={{
-              background: `linear-gradient(to right, #8B5CF6 0%, #3B82F6 ${
-                (muted ? 0 : volume) * 100
-              }%, rgba(255,255,255,0.12) ${(muted ? 0 : volume) * 100}%, rgba(255,255,255,0.12) 100%)`,
-              borderRadius: '9999px',
-              height: '4px',
-            }}
-          />
-        </div>
-      </footer>
-
-      {/* Mobile Compact Mini-Player Strip (sits directly above 56px bottom nav) */}
-      {currentTrack ? (
-        <div className="lg:hidden fixed bottom-14 left-0 right-0 z-40 px-2 pb-1">
-          <div className="flex h-12 items-center gap-1.5 rounded-xl bg-[#151520]/95 backdrop-blur-xl border border-white/10 px-2.5 shadow-xl relative overflow-hidden">
-            {/* Subtle top hairline progress */}
-            <div
-              className="absolute top-0 left-0 h-[2px] bg-gradient-to-r from-violet-500 to-blue-500 transition-[width] duration-150"
-              style={{ width: `${progressPct}%` }}
-            />
-            <button
-              type="button"
-              onClick={() => setMobileExpanded(true)}
-              className="flex flex-1 min-w-0 items-center gap-2.5 text-left"
-              aria-label="Open Now Playing view"
-            >
-              <div className="h-8 w-8 shrink-0 overflow-hidden rounded">
-                <ArtworkImage src={currentTrack.coverUrl} alt={currentTrack.title} />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold text-white truncate">
-                  {currentTrack.title}
-                </p>
-                <p className="text-[11px] text-slate-400 truncate">
-                  {crossfadeStatus
-                    ? `Crossfading · ${crossfadeStatus.remainingSec}s`
-                    : currentTrack.artist}
-                </p>
-              </div>
-            </button>
-
             <button
               type="button"
               onClick={() => onToggleFavorite(currentTrack.id)}
-              aria-label="Favorite track"
-              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
-                isFavorite ? 'text-violet-400' : 'text-slate-400'
+              aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition-colors ${
+                isFavorite
+                  ? 'bg-violet-500/20 border-violet-400/40 text-violet-300'
+                  : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-white'
               }`}
             >
               <Heart className={`w-4 h-4 ${isFavorite ? 'fill-current' : ''}`} />
             </button>
-
-            <button
-              type="button"
-              onClick={handleTogglePlayPause}
-              aria-label={isPlaying ? 'Pause' : 'Play'}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-white"
-            >
-              {isPlaying ? (
-                <Pause className="w-5 h-5 fill-current" />
-              ) : (
-                <Play className="w-5 h-5 fill-current" />
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={onNext}
-              aria-label="Next track"
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-slate-300 hover:text-white"
-            >
-              <SkipForward className="w-4 h-4 fill-current" />
-            </button>
           </div>
-        </div>
-      ) : null}
 
-      {/* Mobile Full-Screen Now Playing Sheet */}
-      {mobileExpanded && currentTrack ? (
-        <div className="lg:hidden fixed inset-0 z-50 flex flex-col bg-[#09090D] px-5 pt-5 pb-[max(2rem,env(safe-area-inset-bottom))] overflow-y-auto">
-          <div className="flex items-center justify-between">
+          {/* Center: Unified Studio Controls & Seek Scrubber */}
+          <div className="flex flex-1 max-w-xl flex-col items-center gap-1.5">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleToggleHookMode}
+                aria-label="Toggle Hook Mode"
+                aria-pressed={hookMode}
+                title={hookMode ? 'Hook Mode: On' : 'Full Song'}
+                className={`flex h-9 w-9 items-center justify-center rounded-xl border transition-colors ${
+                  hookMode
+                    ? 'bg-gradient-to-r from-violet-600/35 to-blue-500/30 border-violet-400/50 text-violet-200'
+                    : 'bg-white/[0.03] border-white/[0.07] text-slate-400 hover:text-white'
+                }`}
+              >
+                <Scissors className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                type="button"
+                onClick={onToggleShuffle}
+                aria-label="Toggle shuffle"
+                aria-pressed={shuffle}
+                className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${
+                  shuffle
+                    ? 'bg-violet-500/20 text-violet-300'
+                    : 'text-slate-400 hover:text-white hover:bg-white/[0.05]'
+                }`}
+              >
+                <Shuffle className="w-4 h-4" />
+              </button>
+
+              <button
+                type="button"
+                onClick={onPrev}
+                aria-label="Previous track"
+                className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/[0.05] text-slate-200 hover:text-white hover:bg-white/[0.1] transition-colors"
+              >
+                <SkipBack className="w-4 h-4 fill-current" />
+              </button>
+
+              <button
+                type="button"
+                onClick={handleTogglePlayPause}
+                aria-label={isPlaying ? 'Pause' : 'Play'}
+                className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-r from-violet-600 to-blue-500 text-white shadow-md shadow-violet-950/60 transition-transform duration-150 hover:scale-105 active:scale-95"
+              >
+                {isPlaying ? (
+                  <Pause className="w-4 h-4 fill-current" />
+                ) : (
+                  <Play className="w-4 h-4 fill-current ml-0.5" />
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={onNext}
+                aria-label="Next track"
+                className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/[0.05] text-slate-200 hover:text-white hover:bg-white/[0.1] transition-colors"
+              >
+                <SkipForward className="w-4 h-4 fill-current" />
+              </button>
+
+              <button
+                type="button"
+                onClick={onCycleRepeat}
+                aria-label={`Repeat mode: ${repeatMode}`}
+                className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${
+                  repeatMode !== 'off'
+                    ? 'bg-blue-500/20 text-blue-300'
+                    : 'text-slate-400 hover:text-white hover:bg-white/[0.05]'
+                }`}
+              >
+                {repeatMode === 'one' ? (
+                  <Repeat1 className="w-4 h-4" />
+                ) : (
+                  <Repeat className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+
+            <div className="flex w-full items-center gap-2.5">
+              <span className="w-10 text-right text-[11px] font-mono-tabular text-slate-400">
+                {formatDuration(currentTime)}
+              </span>
+              <input
+                type="range"
+                aria-label="Seek audio position"
+                min={0}
+                max={effectiveDuration}
+                step={0.2}
+                value={Math.min(currentTime, effectiveDuration)}
+                onChange={(e) => handleSeek(Number(e.target.value))}
+                className="gg-range w-full"
+                style={{
+                  background: `linear-gradient(to right, #8B5CF6 0%, #3B82F6 ${progressPct}%, rgba(255,255,255,0.12) ${progressPct}%, rgba(255,255,255,0.12) 100%)`,
+                  borderRadius: '9999px',
+                  height: '4px',
+                }}
+              />
+              <span className="w-10 text-[11px] font-mono-tabular text-slate-400">
+                {formatDuration(effectiveDuration)}
+              </span>
+            </div>
+          </div>
+
+          {/* Right: Expand Console, Stage Toggle, Queue, Recent & Volume */}
+          <div className="flex items-center justify-end gap-1.5 xl:w-96 shrink-0">
             <button
               type="button"
               onClick={() => {
-                setMobileExpanded(false);
-                setMobileQueueOpen(false);
+                setMinimizedDrawerTab(null);
+                onSetStudioConsoleOpen(true);
               }}
-              aria-label="Collapse player"
-              className="flex h-11 w-11 items-center justify-center rounded-xl text-slate-300 hover:bg-white/5"
+              aria-label="Open Studio Console"
+              className="inline-flex h-9 items-center gap-1.5 px-3 rounded-xl bg-gradient-to-r from-violet-600/25 to-blue-500/20 border border-violet-500/35 text-xs font-medium text-white hover:opacity-90 transition-opacity whitespace-nowrap shrink-0"
             >
-              <ChevronDown className="w-6 h-6" />
+              <Maximize2 className="w-3.5 h-3.5 text-violet-300" />
+              <span>Studio</span>
             </button>
-            <div className="text-center">
-              <p className="text-[11px] text-slate-400">
-                {crossfadeStatus ? '8s Gapless Crossfade' : 'Now Streaming'}
-              </p>
-              <p className="text-xs font-medium text-blue-300">{currentTrack.licenseType}</p>
-            </div>
+
+            {hasAnyYtDeck ? (
+              <button
+                type="button"
+                onClick={() => setYtDockMinimized((prev) => !prev)}
+                aria-label={ytDockMinimized ? 'Show video stage' : 'Hide video stage'}
+                title={ytDockMinimized ? 'Show video stage' : 'Hide video stage'}
+                className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${
+                  !ytDockMinimized
+                    ? 'bg-violet-500/20 text-violet-300'
+                    : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
+                }`}
+              >
+                <Tv className="w-4 h-4" />
+              </button>
+            ) : null}
+
             <button
               type="button"
-              onClick={() => setMobileQueueOpen((prev) => !prev)}
-              aria-label={mobileQueueOpen ? 'Show artwork' : 'Show up next queue'}
-              className={`flex h-11 w-11 items-center justify-center rounded-xl transition-colors ${
-                mobileQueueOpen ? 'bg-violet-500/20 text-violet-300' : 'text-slate-400 hover:bg-white/5'
+              onClick={() =>
+                setMinimizedDrawerTab((prev) => (prev === 'queue' ? null : 'queue'))
+              }
+              aria-label="Toggle playback queue"
+              title="Queue"
+              className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${
+                minimizedDrawerTab === 'queue'
+                  ? 'bg-gradient-to-r from-violet-600/35 to-blue-500/30 text-white border border-violet-400/40'
+                  : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
               }`}
             >
-              <ListMusic className="w-5 h-5" />
+              <ListMusic className="w-4 h-4" />
             </button>
-          </div>
 
-          {mobileQueueOpen ? (
-            <div className="my-5 flex-1 min-h-[240px] max-h-[340px] flex flex-col rounded-2xl bg-[#12121A] border border-white/10 overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.08]">
-                <span className="font-display text-sm font-semibold text-white">
-                  Up Next Queue ({queue.length})
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setMobileQueueOpen(false)}
-                  className="text-xs text-violet-300 font-medium"
-                >
-                  Done
-                </button>
-              </div>
-              <div className="flex-1 overflow-y-auto p-2 space-y-1">
-                {queue.map((item) => {
-                  const active = item.id === currentTrack.id;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => onSelectTrack(item)}
-                      className={`w-full flex items-center gap-3 p-2 rounded-lg text-left transition-colors ${
-                        active
-                          ? 'bg-violet-500/15 text-white'
-                          : 'hover:bg-white/[0.05] text-slate-300'
-                      }`}
-                    >
-                      <div className="h-9 w-9 shrink-0 overflow-hidden rounded">
-                        <ArtworkImage src={item.coverUrl} alt={item.title} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-medium truncate">{item.title}</p>
-                        <p className="text-[11px] text-slate-400 truncate">{item.artist}</p>
-                      </div>
-                      <span className="text-[11px] font-mono-tabular text-slate-500">
-                        {item.durationSec > 0 ? formatDuration(item.durationSec) : 'YouTube'}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ) : (
-            <div className="my-6 mx-auto w-full max-w-[280px] aspect-square overflow-hidden rounded-2xl border border-white/10 shadow-2xl">
-              <ArtworkImage src={currentTrack.coverUrl} alt={currentTrack.title} />
-            </div>
-          )}
-
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <h2 className="font-display text-xl font-bold text-white truncate">
-                {currentTrack.title}
-              </h2>
-              <p className="text-sm text-slate-400 truncate mt-0.5">
-                {currentTrack.artist} · {currentTrack.album}
-              </p>
-              {crossfadeStatus ? (
-                <p className="text-xs text-violet-300 mt-1 font-mono-tabular">
-                  Crossfading to {crossfadeStatus.nextTitle} · {crossfadeStatus.remainingSec}s
-                </p>
-              ) : null}
-            </div>
             <button
               type="button"
-              onClick={() => onToggleFavorite(currentTrack.id)}
-              aria-label="Toggle favorite"
-              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${
-                isFavorite ? 'text-violet-400' : 'text-slate-400'
+              onClick={() =>
+                setMinimizedDrawerTab((prev) => (prev === 'recent' ? null : 'recent'))
+              }
+              aria-label="Toggle recently played"
+              title="Recently Played"
+              className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${
+                minimizedDrawerTab === 'recent'
+                  ? 'bg-gradient-to-r from-violet-600/35 to-blue-500/30 text-white border border-violet-400/40'
+                  : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
               }`}
             >
-              <Heart className={`w-5 h-5 ${isFavorite ? 'fill-current' : ''}`} />
+              <History className="w-4 h-4" />
             </button>
-          </div>
 
-          <div className="mt-6">
+            <button
+              type="button"
+              onClick={() => setMuted((prev) => !prev)}
+              aria-label={muted ? 'Unmute audio' : 'Mute audio'}
+              className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:text-white transition-colors"
+            >
+              {muted || volume === 0 ? (
+                <VolumeX className="w-4 h-4" />
+              ) : (
+                <Volume2 className="w-4 h-4" />
+              )}
+            </button>
+
             <input
               type="range"
-              aria-label="Seek"
+              aria-label="Volume"
               min={0}
-              max={effectiveDuration}
-              step={0.2}
-              value={Math.min(currentTime, effectiveDuration)}
-              onChange={(e) => handleSeek(Number(e.target.value))}
-              className="gg-range w-full"
+              max={1}
+              step={0.02}
+              value={muted ? 0 : volume}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                setVolume(val);
+                if (val > 0 && muted) setMuted(false);
+              }}
+              className="gg-range w-20"
               style={{
-                background: `linear-gradient(to right, #8B5CF6 0%, #3B82F6 ${progressPct}%, rgba(255,255,255,0.14) ${progressPct}%, rgba(255,255,255,0.14) 100%)`,
+                background: `linear-gradient(to right, #8B5CF6 0%, #3B82F6 ${
+                  (muted ? 0 : volume) * 100
+                }%, rgba(255,255,255,0.12) ${(muted ? 0 : volume) * 100}%, rgba(255,255,255,0.12) 100%)`,
                 borderRadius: '9999px',
-                height: '5px',
+                height: '4px',
               }}
             />
-            <div className="mt-2 flex justify-between text-xs font-mono-tabular text-slate-400">
-              <span>{formatDuration(currentTime)}</span>
-              <span>{formatDuration(effectiveDuration)}</span>
+
+            {onClosePlayer ? (
+              <button
+                type="button"
+                onClick={() => {
+                  userPausedRef.current = true;
+                  onClosePlayer();
+                }}
+                aria-label="Close music player"
+                className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.06] transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            ) : null}
+          </div>
+        </footer>
+      ) : null}
+
+      {/* Mobile & Tablet Studio Mini-Console Deck (mirrors Desktop & Expanded Studio Console look) */}
+      {currentTrack && !studioConsoleOpen ? (
+        <div className="lg:hidden fixed bottom-[58px] left-2 right-2 z-40">
+          <div className="rounded-2xl bg-gradient-to-b from-[#131320]/96 via-[#0E0E17]/96 to-[#090910]/96 backdrop-blur-2xl border border-violet-500/30 shadow-[0_18px_50px_-12px_rgba(124,58,237,0.48)] px-2.5 py-2 space-y-1.5">
+            {/* Row 1: Artwork + Track Info + Studio Stage / Queue / Recent / Expand / Close */}
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setMinimizedDrawerTab(null);
+                  onSetStudioConsoleOpen(true);
+                }}
+                className="flex flex-1 min-w-0 items-center gap-2.5 text-left focus-visible:outline-none"
+                aria-label="Open Studio Player"
+              >
+                <div className="h-9 w-9 shrink-0 overflow-hidden rounded-xl border border-violet-500/30 bg-[#181822]">
+                  <ArtworkImage src={currentTrack.coverUrl} alt={currentTrack.title} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="font-display text-xs font-semibold text-white truncate">
+                    {currentTrack.title}
+                  </p>
+                  <p className="text-[11px] text-slate-400 truncate">
+                    {crossfadeStatus
+                      ? `Crossfading · ${crossfadeStatus.remainingSec}s`
+                      : hookMode
+                        ? `${currentTrack.artist} · Hook`
+                        : currentTrack.artist}
+                  </p>
+                </div>
+              </button>
+
+              <div className="flex items-center gap-1 shrink-0">
+                {hasAnyYtDeck ? (
+                  <button
+                    type="button"
+                    onClick={() => setYtDockMinimized((prev) => !prev)}
+                    aria-label={ytDockMinimized ? 'Show video stage' : 'Hide video stage'}
+                    className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${
+                      !ytDockMinimized
+                        ? 'bg-violet-500/20 text-violet-300'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <Tv className="w-3.5 h-3.5" />
+                  </button>
+                ) : null}
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setMinimizedDrawerTab((prev) =>
+                      prev === 'queue' ? null : 'queue'
+                    )
+                  }
+                  aria-label="Toggle playback queue"
+                  className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${
+                    minimizedDrawerTab === 'queue'
+                      ? 'bg-gradient-to-r from-violet-600/35 to-blue-500/30 text-white border border-violet-400/40'
+                      : 'text-slate-300 hover:text-white hover:bg-white/[0.06]'
+                  }`}
+                >
+                  <ListMusic className="w-3.5 h-3.5" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setMinimizedDrawerTab((prev) =>
+                      prev === 'recent' ? null : 'recent'
+                    )
+                  }
+                  aria-label="Toggle recently played"
+                  className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${
+                    minimizedDrawerTab === 'recent'
+                      ? 'bg-gradient-to-r from-violet-600/35 to-blue-500/30 text-white border border-violet-400/40'
+                      : 'text-slate-300 hover:text-white hover:bg-white/[0.06]'
+                  }`}
+                >
+                  <History className="w-3.5 h-3.5" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMinimizedDrawerTab(null);
+                    onSetStudioConsoleOpen(true);
+                  }}
+                  aria-label="Open Studio Console"
+                  className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-r from-violet-600/25 to-blue-500/20 border border-violet-500/35 text-violet-200 hover:text-white"
+                >
+                  <Maximize2 className="w-3.5 h-3.5" />
+                </button>
+
+                {onClosePlayer ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      userPausedRef.current = true;
+                      onClosePlayer();
+                    }}
+                    aria-label="Close music player"
+                    className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:text-white"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                ) : null}
+              </div>
+            </div>
+
+            {/* Row 2: Seek Progress Bar with Tabular Time */}
+            <div className="flex items-center gap-2">
+              <span className="w-8 text-right text-[10px] font-mono-tabular text-slate-400 shrink-0">
+                {formatDuration(currentTime)}
+              </span>
+              <input
+                type="range"
+                aria-label="Seek audio position"
+                min={0}
+                max={effectiveDuration}
+                step={0.2}
+                value={Math.min(currentTime, effectiveDuration)}
+                onChange={(e) => handleSeek(Number(e.target.value))}
+                className="gg-range w-full"
+                style={{
+                  background: `linear-gradient(to right, #8B5CF6 0%, #3B82F6 ${progressPct}%, rgba(255,255,255,0.14) ${progressPct}%, rgba(255,255,255,0.14) 100%)`,
+                  borderRadius: '9999px',
+                  height: '4px',
+                }}
+              />
+              <span className="w-8 text-[10px] font-mono-tabular text-slate-400 shrink-0">
+                {formatDuration(effectiveDuration)}
+              </span>
+            </div>
+
+            {/* Row 3: Unified Studio Transport Bar */}
+            <div className="flex items-center justify-between gap-1 pt-0.5">
+              <button
+                type="button"
+                onClick={handleToggleHookMode}
+                aria-label="Toggle Hook Mode"
+                aria-pressed={hookMode}
+                className={`flex h-8 w-8 items-center justify-center rounded-lg border transition-colors ${
+                  hookMode
+                    ? 'bg-gradient-to-r from-violet-600/35 to-blue-500/30 border-violet-400/50 text-violet-200'
+                    : 'bg-white/[0.03] border-white/[0.07] text-slate-400 hover:text-white'
+                }`}
+              >
+                <Scissors className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                type="button"
+                onClick={onToggleShuffle}
+                aria-label="Toggle shuffle"
+                aria-pressed={shuffle}
+                className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${
+                  shuffle
+                    ? 'bg-violet-500/20 text-violet-300'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Shuffle className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                type="button"
+                onClick={onPrev}
+                aria-label="Previous track"
+                className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.05] text-slate-200 hover:text-white"
+              >
+                <SkipBack className="w-3.5 h-3.5 fill-current" />
+              </button>
+
+              <button
+                type="button"
+                onClick={handleTogglePlayPause}
+                aria-label={isPlaying ? 'Pause' : 'Play'}
+                className="inline-flex h-9 min-w-[78px] items-center justify-center gap-1.5 px-3 rounded-xl bg-gradient-to-r from-violet-600 to-blue-500 text-xs font-bold text-white shadow-md shadow-violet-950/60 active:scale-95 transition-transform"
+              >
+                {isPlaying ? (
+                  <>
+                    <Pause className="w-3.5 h-3.5 fill-current" />
+                    <span>Pause</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span>Play</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={onNext}
+                aria-label="Next track"
+                className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.05] text-slate-200 hover:text-white"
+              >
+                <SkipForward className="w-3.5 h-3.5 fill-current" />
+              </button>
+
+              <button
+                type="button"
+                onClick={onCycleRepeat}
+                aria-label={`Repeat mode: ${repeatMode}`}
+                className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${
+                  repeatMode !== 'off'
+                    ? 'bg-blue-500/20 text-blue-300'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                {repeatMode === 'one' ? (
+                  <Repeat1 className="w-3.5 h-3.5" />
+                ) : (
+                  <Repeat className="w-3.5 h-3.5" />
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onToggleFavorite(currentTrack.id)}
+                aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${
+                  isFavorite
+                    ? 'bg-violet-500/20 text-violet-300'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Heart className={`w-3.5 h-3.5 ${isFavorite ? 'fill-current' : ''}`} />
+              </button>
             </div>
           </div>
-
-          <div className="mt-6 flex items-center justify-between">
-            <button
-              type="button"
-              onClick={onToggleShuffle}
-              aria-label="Shuffle"
-              className={`flex h-11 w-11 items-center justify-center rounded-xl ${
-                shuffle ? 'text-violet-400' : 'text-slate-400'
-              }`}
-            >
-              <Shuffle className="w-5 h-5" />
-            </button>
-            <button
-              type="button"
-              onClick={onPrev}
-              aria-label="Previous"
-              className="flex h-12 w-12 items-center justify-center rounded-xl text-white"
-            >
-              <SkipBack className="w-6 h-6 fill-current" />
-            </button>
-            <button
-              type="button"
-              onClick={handleTogglePlayPause}
-              aria-label={isPlaying ? 'Pause' : 'Play'}
-              className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-r from-violet-600 to-blue-500 text-white shadow-xl"
-            >
-              {isPlaying ? (
-                <Pause className="w-7 h-7 fill-current" />
-              ) : (
-                <Play className="w-7 h-7 fill-current ml-0.5" />
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={onNext}
-              aria-label="Next"
-              className="flex h-12 w-12 items-center justify-center rounded-xl text-white"
-            >
-              <SkipForward className="w-6 h-6 fill-current" />
-            </button>
-            <button
-              type="button"
-              onClick={onCycleRepeat}
-              aria-label="Repeat"
-              className={`flex h-11 w-11 items-center justify-center rounded-xl ${
-                repeatMode !== 'off' ? 'text-blue-400' : 'text-slate-400'
-              }`}
-            >
-              {repeatMode === 'one' ? (
-                <Repeat1 className="w-5 h-5" />
-              ) : (
-                <Repeat className="w-5 h-5" />
-              )}
-            </button>
-          </div>
-
-          <p className="mt-6 text-center text-xs text-slate-500">
-            {currentTrack.licenseSummary}
-          </p>
         </div>
       ) : null}
 
@@ -1999,7 +3528,10 @@ export function PlayerBar({
           <div className="w-full max-w-xl rounded-2xl bg-[#12121A] border border-white/10 overflow-hidden shadow-2xl">
             <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.08]">
               <div className="min-w-0">
-                <h3 id="embed-dialog-title" className="font-display text-base font-semibold text-white truncate">
+                <h3
+                  id="embed-dialog-title"
+                  className="font-display text-base font-semibold text-white truncate"
+                >
                   {embedTrack.title}
                 </h3>
                 <p className="text-xs text-slate-400 truncate">

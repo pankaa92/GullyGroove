@@ -1,4 +1,4 @@
-import { CheckCircle2, Mail, Send, X, Youtube } from 'lucide-react';
+import { CheckCircle2, Mail, MessageSquare, Send, X } from 'lucide-react';
 import { useState } from 'react';
 import {
   SONG_REQUEST_EMAIL,
@@ -11,39 +11,22 @@ interface RequestSongModalProps {
   onClose: () => void;
 }
 
-function isValidYouTubeUrl(value: string): boolean {
-  try {
-    const parsed = new URL(value.trim());
-    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-      return false;
-    }
-    const host = parsed.hostname.toLowerCase();
-    return (
-      host === 'youtu.be' ||
-      host === 'youtube.com' ||
-      host.endsWith('.youtube.com')
-    );
-  } catch {
-    return false;
-  }
-}
-
 export function RequestSongModal({ open, onClose }: RequestSongModalProps) {
   const [songName, setSongName] = useState('');
-  const [youtubeUrl, setYoutubeUrl] = useState('');
+  const [feedback, setFeedback] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SongRequestResult | null>(null);
   const [submittedDetails, setSubmittedDetails] = useState<{
     songName: string;
-    youtubeUrl: string;
+    feedback: string;
   } | null>(null);
 
   if (!open) return null;
 
   const handleReset = () => {
     setSongName('');
-    setYoutubeUrl('');
+    setFeedback('');
     setError(null);
     setResult(null);
     setSubmittedDetails(null);
@@ -59,15 +42,10 @@ export function RequestSongModal({ open, onClose }: RequestSongModalProps) {
     setError(null);
 
     const trimmedName = songName.trim();
-    const trimmedUrl = youtubeUrl.trim();
+    const trimmedFeedback = feedback.trim();
 
-    if (!trimmedName) {
-      setError('Please enter the song name.');
-      return;
-    }
-
-    if (!isValidYouTubeUrl(trimmedUrl)) {
-      setError('Please enter a valid YouTube link (youtube.com or youtu.be).');
+    if (!trimmedName && !trimmedFeedback) {
+      setError('Please enter a song name or share your feedback/comment.');
       return;
     }
 
@@ -75,12 +53,12 @@ export function RequestSongModal({ open, onClose }: RequestSongModalProps) {
     try {
       const response = await submitSongRequest({
         songName: trimmedName,
-        youtubeUrl: trimmedUrl,
+        feedback: trimmedFeedback,
       });
-      setSubmittedDetails({ songName: trimmedName, youtubeUrl: trimmedUrl });
+      setSubmittedDetails({ songName: trimmedName, feedback: trimmedFeedback });
       setResult(response);
     } catch (err) {
-      setError((err as Error).message || 'Could not send your song request. Please try again.');
+      setError((err as Error).message || 'Could not send your tune request. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -103,7 +81,7 @@ export function RequestSongModal({ open, onClose }: RequestSongModalProps) {
               Tune Request
             </h2>
             <p className="text-xs text-slate-400">
-              Send a song name &amp; YouTube link to {SONG_REQUEST_EMAIL}
+              Send a song request, feedback, or comment to {SONG_REQUEST_EMAIL}
             </p>
           </div>
           <button
@@ -123,9 +101,9 @@ export function RequestSongModal({ open, onClose }: RequestSongModalProps) {
               <div className="space-y-1 text-xs">
                 <p className="font-semibold text-white">
                   {result.status === 'sent'
-                    ? 'Song Request Sent'
+                    ? 'Tune Request Sent'
                     : result.status === 'activation-required'
-                      ? 'Song Request Submitted'
+                      ? 'Tune Request Submitted'
                       : 'Ready to Send via Email'}
                 </p>
                 <p className="text-slate-300 leading-relaxed">{result.message}</p>
@@ -133,14 +111,20 @@ export function RequestSongModal({ open, onClose }: RequestSongModalProps) {
             </div>
 
             <div className="rounded-xl bg-[#09090D] border border-white/[0.08] p-3.5 space-y-1.5 text-xs">
-              <div>
-                <span className="text-slate-500">Song: </span>
-                <span className="font-medium text-white">{submittedDetails.songName}</span>
-              </div>
-              <div className="truncate">
-                <span className="text-slate-500">YouTube Link: </span>
-                <span className="text-blue-400">{submittedDetails.youtubeUrl}</span>
-              </div>
+              {submittedDetails.songName ? (
+                <div>
+                  <span className="text-slate-500">Song: </span>
+                  <span className="font-medium text-white">{submittedDetails.songName}</span>
+                </div>
+              ) : null}
+              {submittedDetails.feedback ? (
+                <div>
+                  <span className="text-slate-500">Feedback / Comment: </span>
+                  <span className="text-slate-200 whitespace-pre-wrap break-words">
+                    {submittedDetails.feedback}
+                  </span>
+                </div>
+              ) : null}
               <div>
                 <span className="text-slate-500">Recipient: </span>
                 <span className="text-slate-300">{SONG_REQUEST_EMAIL}</span>
@@ -189,7 +173,6 @@ export function RequestSongModal({ open, onClose }: RequestSongModalProps) {
               <input
                 id="request-song-name"
                 type="text"
-                required
                 value={songName}
                 onChange={(e) => setSongName(e.target.value)}
                 placeholder="e.g. Tum Hi Ho - Arijit Singh"
@@ -199,21 +182,20 @@ export function RequestSongModal({ open, onClose }: RequestSongModalProps) {
 
             <div>
               <label
-                htmlFor="request-youtube-link"
+                htmlFor="request-feedback-comment"
                 className="block text-xs font-medium text-slate-300 mb-1.5"
               >
-                YouTube Link
+                Feedback or Comment
               </label>
               <div className="relative">
-                <Youtube className="w-4 h-4 text-violet-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  id="request-youtube-link"
-                  type="url"
-                  required
-                  value={youtubeUrl}
-                  onChange={(e) => setYoutubeUrl(e.target.value)}
-                  placeholder="https://youtu.be/... or https://www.youtube.com/watch?v=..."
-                  className="w-full h-11 rounded-xl bg-[#09090D] border border-white/10 pl-10 pr-3.5 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-violet-500"
+                <MessageSquare className="w-4 h-4 text-violet-400 absolute left-3.5 top-3.5 pointer-events-none" />
+                <textarea
+                  id="request-feedback-comment"
+                  rows={4}
+                  value={feedback}
+                  onChange={(e) => setFeedback(e.target.value)}
+                  placeholder="Share artist details, playlist suggestion, or feedback..."
+                  className="w-full rounded-xl bg-[#09090D] border border-white/10 pl-10 pr-3.5 py-2.5 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-violet-500 resize-y min-h-[104px]"
                 />
               </div>
             </div>

@@ -34,6 +34,11 @@ import type {
   Track,
 } from './types/music';
 import { formatTotalMinutes } from './utils/format';
+import {
+  LANGUAGE_FILTERS,
+  matchesLanguageFilter,
+  type LanguageFilter,
+} from './utils/languageFilter';
 
 type ActiveTab = 'discover' | 'playlists' | 'search' | 'vault' | 'playlist-detail';
 type RegionFilter = 'All' | 'India' | 'Pan-India' | 'Global';
@@ -79,7 +84,7 @@ const FEATURED_VOICES: FeaturedVoiceCard[] = [
     id: 'voice-himalayan',
     name: 'Sajjan Raj & Himalayan Folk',
     subtitle: 'Nepali & North East gems',
-    playlistId: 'nepali-hits',
+    playlistId: 'nepali-northeast-hits',
     coverUrl: COVER_ASSETS.himalayanFolk,
   },
   {
@@ -111,7 +116,9 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('discover');
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string>('top-50-hindi');
   const [regionFilter, setRegionFilter] = useState<RegionFilter>('All');
+  const [languageFilter, setLanguageFilter] = useState<LanguageFilter>('All');
   const [playlistDirectAudioOnly, setPlaylistDirectAudioOnly] = useState(false);
+  const [visibleTrackLimit, setVisibleTrackLimit] = useState(80);
 
   const [playlists, setPlaylists] = useState<PlaylistWithStats[]>([]);
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -132,6 +139,19 @@ export default function App() {
   const [shuffle, setShuffle] = useState(false);
   const [repeatMode, setRepeatMode] = useState<RepeatMode>('all');
   const [metadataTrack, setMetadataTrack] = useState<Track | null>(null);
+  const [studioConsoleOpen, setStudioConsoleOpen] = useState(false);
+  const [recentlyPlayed, setRecentlyPlayed] = useState<Track[]>(() => {
+    try {
+      const saved = localStorage.getItem('gg_recently_played_v1');
+      if (saved) {
+        const parsed = JSON.parse(saved) as Track[];
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {
+      // ignore storage errors
+    }
+    return [];
+  });
 
   // Favorites & Modals
   const [favorites, setFavorites] = useState<Set<string>>(() => {
@@ -157,9 +177,7 @@ export default function App() {
       setProviders(data.providers);
 
       const playable = data.tracks.filter(isPlayableTrack);
-      const firstDirect = playable.find((t) => Boolean(t.streamUrl)) ?? playable[0] ?? null;
       setQueue((prev) => (prev.length > 0 ? prev : playable));
-      setCurrentTrack((prev) => prev ?? firstDirect);
     } catch {
       setLoadError('Unable to load the GullyGroove music catalog.');
     } finally {
@@ -179,6 +197,24 @@ export default function App() {
     }
   }, [favorites]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        'gg_recently_played_v1',
+        JSON.stringify(recentlyPlayed.slice(0, 30))
+      );
+    } catch {
+      // ignore
+    }
+  }, [recentlyPlayed]);
+
+  const pushRecentlyPlayed = useCallback((track: Track) => {
+    setRecentlyPlayed((prev) => [
+      track,
+      ...prev.filter((t) => t.id !== track.id),
+    ].slice(0, 30));
+  }, []);
+
   const handleToggleFavorite = (trackId: string, discoveredTrack?: Track) => {
     const wasFavorite = favorites.has(trackId);
     setFavorites((prev) => {
@@ -194,7 +230,10 @@ export default function App() {
 
   const playTrackFromList = useCallback(
     (track: Track, list: Track[]) => {
-      if (track.playbackRights === 'metadata-only' || (track.playbackRights === 'embed-only' && !track.embedId)) {
+      if (
+        track.playbackRights === 'metadata-only' ||
+        (track.playbackRights === 'embed-only' && !track.embedId)
+      ) {
         setIsPlaying(false);
         setMetadataTrack(track);
         return;
@@ -211,9 +250,11 @@ export default function App() {
       setMetadataTrack(null);
       setCurrentTrack(track);
       setIsPlaying(true);
+      setStudioConsoleOpen(true);
+      pushRecentlyPlayed(track);
       recordTrackPlay(track.id);
     },
-    [currentTrack?.id]
+    [currentTrack?.id, pushRecentlyPlayed]
   );
 
   const handlePlayPause = useCallback(() => {
@@ -241,11 +282,15 @@ export default function App() {
     [queue, shuffle, repeatMode]
   );
 
-  const handleCrossfadeComplete = useCallback((nextTrack: Track) => {
-    setCurrentTrack(nextTrack);
-    setIsPlaying(true);
-    recordTrackPlay(nextTrack.id);
-  }, []);
+  const handleCrossfadeComplete = useCallback(
+    (nextTrack: Track) => {
+      setCurrentTrack(nextTrack);
+      setIsPlaying(true);
+      pushRecentlyPlayed(nextTrack);
+      recordTrackPlay(nextTrack.id);
+    },
+    [pushRecentlyPlayed]
+  );
 
   const handleNext = useCallback(() => {
     const next = getNextTrack(currentTrack?.id);
@@ -255,8 +300,9 @@ export default function App() {
     }
     setCurrentTrack(next);
     setIsPlaying(true);
+    pushRecentlyPlayed(next);
     recordTrackPlay(next.id);
-  }, [getNextTrack, currentTrack?.id]);
+  }, [getNextTrack, currentTrack?.id, pushRecentlyPlayed]);
 
   const handlePrev = useCallback(() => {
     const playable = queue.filter(isPlayableTrack);
@@ -266,8 +312,9 @@ export default function App() {
     const prev = playable[prevIdx];
     setCurrentTrack(prev);
     setIsPlaying(true);
+    pushRecentlyPlayed(prev);
     recordTrackPlay(prev.id);
-  }, [queue, currentTrack?.id]);
+  }, [queue, currentTrack?.id, pushRecentlyPlayed]);
 
   // Global spacebar Play/Pause shortcut
   useEffect(() => {
@@ -287,6 +334,7 @@ export default function App() {
   const openPlaylist = (playlistId: string) => {
     setSelectedPlaylistId(playlistId);
     setPlaylistDirectAudioOnly(false);
+    setVisibleTrackLimit(80);
     setActiveTab('playlist-detail');
   };
 
@@ -303,9 +351,14 @@ export default function App() {
   );
 
   const quickPlayPlaylist = (playlistId: string) => {
-    const plTracks = getPlaylistTracks(playlistId);
-    if (plTracks.length > 0) {
-      playTrackFromList(plTracks[0], plTracks);
+    const baseTracks = getPlaylistTracks(playlistId);
+    const matchingTracks =
+      languageFilter === 'All'
+        ? baseTracks
+        : baseTracks.filter((t) => matchesLanguageFilter(t, languageFilter));
+    const listToPlay = matchingTracks.length > 0 ? matchingTracks : baseTracks;
+    if (listToPlay.length > 0) {
+      playTrackFromList(listToPlay[0], listToPlay);
     }
   };
 
@@ -362,26 +415,63 @@ export default function App() {
     });
   }, [playlists, getPlaylistTracks]);
 
+  const playlistsWithLanguageCounts = useMemo(() => {
+    if (languageFilter === 'All') return playlistsWithLiveCounts;
+    return playlistsWithLiveCounts
+      .map((pl) => {
+        const matching = getPlaylistTracks(pl.id).filter((t) =>
+          matchesLanguageFilter(t, languageFilter)
+        );
+        const totalDurationSec = matching.reduce((acc, t) => acc + t.durationSec, 0);
+        return {
+          ...pl,
+          trackCount: matching.length,
+          totalDurationSec,
+        };
+      })
+      .filter((pl) => pl.trackCount > 0);
+  }, [playlistsWithLiveCounts, languageFilter, getPlaylistTracks]);
+
   const filteredPlaylists = useMemo(() => {
-    if (regionFilter === 'All') return playlistsWithLiveCounts;
-    return playlistsWithLiveCounts.filter((pl) => pl.region === regionFilter);
-  }, [playlistsWithLiveCounts, regionFilter]);
+    if (regionFilter === 'All') return playlistsWithLanguageCounts;
+    return playlistsWithLanguageCounts.filter((pl) => pl.region === regionFilter);
+  }, [playlistsWithLanguageCounts, regionFilter]);
+
+  const totalMatchingLanguageTracks = useMemo(() => {
+    if (languageFilter === 'All') return tracks.length;
+    return tracks.filter((t) => matchesLanguageFilter(t, languageFilter)).length;
+  }, [tracks, languageFilter]);
 
   const activePlaylist = useMemo(() => {
     const pl =
       playlistsWithLiveCounts.find((p) => p.id === selectedPlaylistId) || null;
     const allTracks = pl ? getPlaylistTracks(pl.id) : [];
-    const directCount = allTracks.filter((t) => Boolean(t.streamUrl)).length;
+    const languageMatchedTracks =
+      languageFilter === 'All'
+        ? allTracks
+        : allTracks.filter((t) => matchesLanguageFilter(t, languageFilter));
+    const baseTracks =
+      languageFilter !== 'All' && languageMatchedTracks.length > 0
+        ? languageMatchedTracks
+        : allTracks;
+    const directCount = baseTracks.filter((t) => Boolean(t.streamUrl)).length;
     const displayedTracks = playlistDirectAudioOnly
-      ? allTracks.filter((t) => Boolean(t.streamUrl))
-      : allTracks;
+      ? baseTracks.filter((t) => Boolean(t.streamUrl))
+      : baseTracks;
     return {
       playlist: pl,
       allTracks,
+      languageMatchedCount: languageMatchedTracks.length,
       displayedTracks,
       directCount,
     };
-  }, [selectedPlaylistId, playlistsWithLiveCounts, getPlaylistTracks, playlistDirectAudioOnly]);
+  }, [
+    selectedPlaylistId,
+    playlistsWithLiveCounts,
+    getPlaylistTracks,
+    playlistDirectAudioOnly,
+    languageFilter,
+  ]);
 
   const directStreamTracks = useMemo(
     () => tracks.filter((t) => Boolean(t.streamUrl)),
@@ -405,7 +495,11 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#09090D] text-slate-100 flex flex-col lg:flex-row">
       {/* Desktop Left Sidebar — Dual-Panel Spotify-Style Dark Studio Rail */}
-      <aside className="hidden lg:flex lg:w-64 xl:w-72 lg:shrink-0 lg:flex-col lg:fixed lg:inset-y-0 lg:left-0 bg-[#07070B] p-2.5 gap-2.5 pb-24">
+      <aside
+        className={`hidden lg:flex lg:w-64 xl:w-72 lg:shrink-0 lg:flex-col lg:fixed lg:inset-y-0 lg:left-0 bg-[#07070B] p-2.5 gap-2.5 ${
+          currentTrack ? 'pb-24' : 'pb-2.5'
+        }`}
+      >
         {/* Top Navigation Panel */}
         <div className="rounded-2xl bg-[#101017] border border-white/[0.07] p-3 space-y-3">
           <button
@@ -593,7 +687,11 @@ export default function App() {
         </header>
 
         {/* Main Scrollable Content Area */}
-        <main className="flex-1 px-3 sm:px-6 lg:px-8 py-4 sm:py-6 pb-40 lg:pb-28 max-w-7xl w-full mx-auto">
+        <main
+          className={`flex-1 px-3 sm:px-6 lg:px-8 py-4 sm:py-6 max-w-7xl w-full mx-auto ${
+            currentTrack ? 'pb-48 lg:pb-28' : 'pb-20 lg:pb-10'
+          }`}
+        >
           {loadError ? (
             <div className="p-6 rounded-2xl bg-red-950/30 border border-red-500/30 text-sm text-red-200 flex items-center justify-between gap-4">
               <span>{loadError}</span>
@@ -723,15 +821,75 @@ export default function App() {
                     </div>
                   </section>
 
-                  {/* Curated Playlists Grid with Region Filter Tabs */}
+                  {/* Recently Played Songs Strip (appears cleanly once user has played music) */}
+                  {recentlyPlayed.length > 0 ? (
+                    <section className="space-y-3.5">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h2 className="font-display text-lg sm:text-xl font-bold text-white">
+                            Recently Played
+                          </h2>
+                          <p className="text-xs text-slate-400 mt-0.5">
+                            Jump back into your latest tracks in the Studio Player.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setRecentlyPlayed([])}
+                          className="text-xs font-medium text-slate-400 hover:text-white whitespace-nowrap shrink-0"
+                        >
+                          Clear History
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+                        {recentlyPlayed.slice(0, 8).map((track) => {
+                          const active = currentTrack?.id === track.id;
+                          return (
+                            <button
+                              key={track.id}
+                              type="button"
+                              onClick={() => playTrackFromList(track, recentlyPlayed)}
+                              className={`group flex items-center gap-3 rounded-xl p-2.5 text-left border transition-all duration-150 ${
+                                active
+                                  ? 'bg-gradient-to-r from-violet-600/20 to-blue-500/15 border-violet-500/40'
+                                  : 'bg-[#12121B] border-white/[0.06] hover:bg-[#191926] hover:border-violet-500/35'
+                              }`}
+                            >
+                              <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-[#0D0D14]">
+                                <ArtworkImage
+                                  src={track.coverUrl}
+                                  alt={track.title}
+                                  className="h-full w-full object-cover"
+                                />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs font-semibold text-white truncate">
+                                  {track.title}
+                                </p>
+                                <p className="text-[11px] text-slate-400 truncate mt-0.5">
+                                  {track.artist}
+                                </p>
+                              </div>
+                              <Play className="w-3.5 h-3.5 text-violet-300 opacity-70 group-hover:opacity-100 shrink-0" />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {/* Curated Playlists Grid with Bhasha (Language) & Region Filter Tabs */}
                   <section className="space-y-4 sm:space-y-5">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div>
                         <h2 className="font-display text-xl sm:text-2xl font-bold text-white">
-                          Curated for India &amp; Beyond
+                          Pick Your Mood &amp; Vibe
                         </h2>
                         <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
-                          From Top Hindi Songs, 2 AM Arijit &amp; Shadi Sangeet to Nepali, Bhojpuri, North East &amp; South hits.
+                          {languageFilter === 'All'
+                            ? `${filteredPlaylists.length} curated playlists across ${tracks.length} tracks — Hindi, Punjabi, South, Bhakti & beyond.`
+                            : `Showing ${filteredPlaylists.length} vibes · ${totalMatchingLanguageTracks} songs in ${languageFilter}`}
                         </p>
                       </div>
 
@@ -759,16 +917,71 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
-                      {filteredPlaylists.map((playlist) => (
-                        <PlaylistCard
-                          key={playlist.id}
-                          playlist={playlist}
-                          onSelect={openPlaylist}
-                          onQuickPlay={quickPlayPlaylist}
-                        />
+                    {/* Bhasha / Language Filter Bar (Bajao-style multi-language selector) */}
+                    <div
+                      className="flex items-center gap-1.5 overflow-x-auto pb-1"
+                      role="tablist"
+                      aria-label="Filter playlists by language"
+                    >
+                      {LANGUAGE_FILTERS.map((lang) => (
+                        <button
+                          key={lang}
+                          type="button"
+                          role="tab"
+                          aria-selected={languageFilter === lang}
+                          onClick={() => setLanguageFilter(lang)}
+                          className={`px-3.5 py-2 text-xs font-medium rounded-xl border whitespace-nowrap shrink-0 transition-all duration-150 ${
+                            languageFilter === lang
+                              ? 'bg-gradient-to-r from-violet-600/90 to-blue-500/90 border-violet-400/50 text-white shadow-md shadow-violet-950/40'
+                              : 'bg-[#12121B] border-white/[0.07] text-slate-300 hover:text-white hover:border-violet-500/35'
+                          }`}
+                        >
+                          {lang}
+                        </button>
                       ))}
+                      {(languageFilter !== 'All' || regionFilter !== 'All') ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLanguageFilter('All');
+                            setRegionFilter('All');
+                          }}
+                          className="px-3 py-2 text-xs font-medium text-blue-400 hover:text-blue-300 whitespace-nowrap shrink-0"
+                        >
+                          Reset filters
+                        </button>
+                      ) : null}
                     </div>
+
+                    {filteredPlaylists.length === 0 ? (
+                      <div className="py-10 px-4 text-center rounded-2xl bg-[#12121B] border border-white/[0.07]">
+                        <p className="text-sm text-slate-300">
+                          No playlists matched {languageFilter} in the {regionFilter} filter.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLanguageFilter('All');
+                            setRegionFilter('All');
+                          }}
+                          className="mt-3 px-4 py-2 text-xs font-semibold text-white rounded-xl bg-gradient-to-r from-violet-600 to-blue-500"
+                        >
+                          Show All Playlists
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
+                        {filteredPlaylists.map((playlist) => (
+                          <PlaylistCard
+                            key={playlist.id}
+                            playlist={playlist}
+                            activeLanguage={languageFilter}
+                            onSelect={openPlaylist}
+                            onQuickPlay={quickPlayPlaylist}
+                          />
+                        ))}
+                      </div>
+                    )}
                   </section>
 
                   {/* Featured Voices & Soundscapes — Visual Artist / Editorial Showcase */}
@@ -865,14 +1078,16 @@ export default function App() {
 
               {/* ALL PLAYLISTS VIEW */}
               {activeTab === 'playlists' ? (
-                <section className="space-y-6 gg-view-enter">
+                <section className="space-y-5 gg-view-enter">
                   <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-white/[0.08] pb-5">
                     <div>
                       <h1 className="font-display text-2xl sm:text-3xl font-bold text-white">
                         All Curated Playlists
                       </h1>
                       <p className="text-sm text-slate-400 mt-1">
-                        Every mood from Top Hindi Songs, 2 AM Arijit &amp; Shadi Sangeet to Highway Classics.
+                        {languageFilter === 'All'
+                          ? 'Every vibe from Top Hindi Songs, Bhakti & All in One to Shadi Sangeet and Highway Classics.'
+                          : `Filtered by ${languageFilter} · ${filteredPlaylists.length} matching playlists`}
                       </p>
                     </div>
 
@@ -894,11 +1109,36 @@ export default function App() {
                     </div>
                   </div>
 
+                  {/* Bhasha Filter Strip */}
+                  <div
+                    className="flex items-center gap-1.5 overflow-x-auto pb-1"
+                    role="tablist"
+                    aria-label="Filter playlists by language"
+                  >
+                    {LANGUAGE_FILTERS.map((lang) => (
+                      <button
+                        key={lang}
+                        type="button"
+                        role="tab"
+                        aria-selected={languageFilter === lang}
+                        onClick={() => setLanguageFilter(lang)}
+                        className={`px-3.5 py-2 text-xs font-medium rounded-xl border whitespace-nowrap shrink-0 transition-all duration-150 ${
+                          languageFilter === lang
+                            ? 'bg-gradient-to-r from-violet-600/90 to-blue-500/90 border-violet-400/50 text-white shadow-md shadow-violet-950/40'
+                            : 'bg-[#12121B] border-white/[0.07] text-slate-300 hover:text-white hover:border-violet-500/35'
+                        }`}
+                      >
+                        {lang}
+                      </button>
+                    ))}
+                  </div>
+
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-5">
                     {filteredPlaylists.map((playlist) => (
                       <PlaylistCard
                         key={playlist.id}
                         playlist={playlist}
+                        activeLanguage={languageFilter}
                         onSelect={openPlaylist}
                         onQuickPlay={quickPlayPlaylist}
                       />
@@ -1001,6 +1241,16 @@ export default function App() {
                             ? `Direct Audio Only (${activePlaylist.directCount})`
                             : 'Direct Audio Only (Ad-Free)'}
                         </button>
+
+                        {languageFilter !== 'All' && activePlaylist.languageMatchedCount > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => setLanguageFilter('All')}
+                            className="inline-flex h-11 items-center justify-center gap-2 px-4 rounded-xl bg-violet-500/15 border border-violet-400/35 text-xs font-medium text-violet-200 hover:bg-violet-500/25 transition-colors whitespace-nowrap shrink-0"
+                          >
+                            {languageFilter} Only ({activePlaylist.languageMatchedCount}) · Show All
+                          </button>
+                        ) : null}
                       </div>
                     </div>
                   </div>
@@ -1031,24 +1281,49 @@ export default function App() {
                       )}
                     </div>
                   ) : (
-                    <div className="divide-y divide-white/[0.04]">
-                      {activePlaylist.displayedTracks.map((track, idx) => (
-                        <TrackRow
-                          key={track.id}
-                          track={track}
-                          index={idx}
-                          isCurrent={currentTrack?.id === track.id}
-                          isPlaying={isPlaying}
-                          isFavorite={favorites.has(track.id)}
-                          playlists={playlistsWithLiveCounts}
-                          onPlayToggle={(t) =>
-                            playTrackFromList(t, activePlaylist.displayedTracks)
-                          }
-                          onToggleFavorite={handleToggleFavorite}
-                          onAddToPlaylist={handleAddToPlaylist}
-                        />
-                      ))}
-                    </div>
+                    <>
+                      <div className="divide-y divide-white/[0.04]">
+                        {activePlaylist.displayedTracks
+                          .slice(0, visibleTrackLimit)
+                          .map((track, idx) => (
+                            <TrackRow
+                              key={track.id}
+                              track={track}
+                              index={idx}
+                              isCurrent={currentTrack?.id === track.id}
+                              isPlaying={isPlaying}
+                              isFavorite={favorites.has(track.id)}
+                              playlists={playlistsWithLiveCounts}
+                              onPlayToggle={(t) =>
+                                playTrackFromList(t, activePlaylist.displayedTracks)
+                              }
+                              onToggleFavorite={handleToggleFavorite}
+                              onAddToPlaylist={handleAddToPlaylist}
+                            />
+                          ))}
+                      </div>
+
+                      {activePlaylist.displayedTracks.length > visibleTrackLimit ? (
+                        <div className="pt-4 flex flex-wrap items-center justify-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setVisibleTrackLimit((prev) => prev + 100)}
+                            className="inline-flex h-10 items-center justify-center px-5 rounded-xl bg-white/[0.07] hover:bg-white/[0.12] border border-white/10 text-xs font-semibold text-white transition-colors"
+                          >
+                            Load 100 More ({visibleTrackLimit} of {activePlaylist.displayedTracks.length})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setVisibleTrackLimit(activePlaylist.displayedTracks.length)
+                            }
+                            className="inline-flex h-10 items-center justify-center px-4 rounded-xl text-xs font-medium text-blue-300 hover:text-blue-200 transition-colors"
+                          >
+                            Show All {activePlaylist.displayedTracks.length} Songs
+                          </button>
+                        </div>
+                      ) : null}
+                    </>
                   )}
                 </section>
               ) : null}
@@ -1140,15 +1415,18 @@ export default function App() {
         </button>
       </nav>
 
-      {/* Persistent Audio Player Bar + Dual-Deck 8s Gapless Crossfade + YouTube Mini-Player */}
+      {/* Persistent Audio Player Bar + Bajao-Inspired Studio Console + Dual-Deck 8s Crossfade */}
       <PlayerBar
         currentTrack={currentTrack}
         queue={queue}
+        recentlyPlayed={recentlyPlayed}
         isPlaying={isPlaying}
         shuffle={shuffle}
         repeatMode={repeatMode}
         isFavorite={currentTrack ? favorites.has(currentTrack.id) : false}
         embedTrack={metadataTrack}
+        studioConsoleOpen={studioConsoleOpen}
+        onSetStudioConsoleOpen={setStudioConsoleOpen}
         getNextTrack={getNextTrack}
         onCrossfadeComplete={handleCrossfadeComplete}
         onCloseEmbed={() => setMetadataTrack(null)}
@@ -1163,8 +1441,15 @@ export default function App() {
         }
         onToggleFavorite={handleToggleFavorite}
         onSelectTrack={(track) => playTrackFromList(track, queue)}
+        onClearRecentlyPlayed={() => setRecentlyPlayed([])}
         onPlaybackEnded={handleNext}
         onSetPlayingState={setIsPlaying}
+        onOpenTuneRequest={() => setRequestModalOpen(true)}
+        onClosePlayer={() => {
+          setIsPlaying(false);
+          setStudioConsoleOpen(false);
+          setCurrentTrack(null);
+        }}
       />
 
       {/* Register Authorised Media Track Modal */}

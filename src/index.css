@@ -131,6 +131,73 @@ input[type='range'].gg-range:hover::-webkit-slider-thumb {
   transform: scale(1.2);
 }
 
+/* Boombox stereo EQ animation (compositor-only scaleX) */
+@keyframes ggBoomboxEq {
+  0%, 100% {
+    transform: scaleX(0.42);
+  }
+  50% {
+    transform: scaleX(1);
+  }
+}
+
+.gg-boombox-eq-bar {
+  transform-origin: center;
+  animation: ggBoomboxEq 640ms cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+/* Dual-handle hook scrubber inputs (only thumbs receive pointer events) */
+input[type='range'].gg-dual-range {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  margin: 0;
+}
+
+input[type='range'].gg-dual-range::-webkit-slider-runnable-track {
+  background: transparent;
+  height: 4px;
+}
+
+input[type='range'].gg-dual-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: auto;
+  cursor: grab;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, #a78bfa 0%, #60a5fa 100%);
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.75);
+  transition: transform 140ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+input[type='range'].gg-dual-range::-webkit-slider-thumb:active {
+  cursor: grabbing;
+  transform: scale(1.2);
+}
+
+input[type='range'].gg-dual-range::-moz-range-thumb {
+  pointer-events: auto;
+  cursor: grab;
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, #a78bfa 0%, #60a5fa 100%);
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.75);
+}
+
+@media (pointer: coarse) {
+  input[type='range'].gg-dual-range::-webkit-slider-thumb {
+    width: 18px;
+    height: 18px;
+    margin-top: -7px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     animation-duration: 0.01ms !important;

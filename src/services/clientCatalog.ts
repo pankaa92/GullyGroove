@@ -43,20 +43,36 @@ function toDirectAudiusStreamUrl(streamUrl: string): string {
   return streamUrl;
 }
 
-function normalizeStaticTrack(track: Track): Track {
-  return {
-    ...track,
-    streamUrl: track.streamUrl ? toDirectAudiusStreamUrl(track.streamUrl) : '',
-    playlistIds: Array.from(
-      new Set(
-        (track.playlistIds || []).filter(
+const LEGACY_PLAYLIST_MAP: Record<string, string> = {
+  'traveling-vibes': 'bus-driver-playlist',
+  'evergreen-bollywood': '90s-hindi-classics',
+  'nepali-hits': 'nepali-northeast-hits',
+  'northeast-hits': 'nepali-northeast-hits',
+  'punjabi-party-hits': 'party-dj-hits',
+  'dj-love-mashups': 'party-dj-hits',
+  'bollywood-romantic-hits': 'top-50-hindi',
+};
+
+function mapPlaylistIds(ids: string[]): string[] {
+  return Array.from(
+    new Set(
+      ids
+        .filter(
           (id) =>
             id !== 'relaxing-music' &&
             id !== 'gapless-playback' &&
             id !== 'trending-international'
         )
-      )
-    ),
+        .map((id) => LEGACY_PLAYLIST_MAP[id] || id)
+    )
+  );
+}
+
+function normalizeStaticTrack(track: Track): Track {
+  return {
+    ...track,
+    streamUrl: track.streamUrl ? toDirectAudiusStreamUrl(track.streamUrl) : '',
+    playlistIds: mapPlaylistIds(track.playlistIds || []),
   };
 }
 
@@ -89,11 +105,7 @@ function getStaticTracks(): Track[] {
   for (const t of [...stored, ...INITIAL_TRACKS]) {
     const normalized = normalizeStaticTrack(t);
     const extraPlaylists = assignments[normalized.id] || [];
-    normalized.playlistIds = Array.from(
-      new Set([...normalized.playlistIds, ...extraPlaylists].filter(
-        (id) => id !== 'gapless-playback' && id !== 'trending-international'
-      ))
-    );
+    normalized.playlistIds = mapPlaylistIds([...normalized.playlistIds, ...extraPlaylists]);
     map.set(normalized.id, normalized);
   }
   return Array.from(map.values());
@@ -565,19 +577,24 @@ export interface SongRequestResult {
 
 export const SONG_REQUEST_EMAIL = 'iampank3@gmail.com';
 
-export function buildSongRequestMailto(songName: string, youtubeUrl: string): string {
-  const subject = `GullyGroove Song Request: ${songName}`;
-  const body = `Hi,\n\nPlease add this song to GullyGroove:\n\nSong Name: ${songName}\nYouTube Link: ${youtubeUrl}\n`;
+export function buildSongRequestMailto(songName: string, feedback: string): string {
+  const subject = songName
+    ? `GullyGroove Tune Request: ${songName}`
+    : 'GullyGroove Tune Request & Feedback';
+  const lines = ['Hi,', '', 'New Tune Request / Feedback on GullyGroove:', ''];
+  if (songName) lines.push(`Song Name: ${songName}`);
+  if (feedback) lines.push(`Feedback / Comment: ${feedback}`);
+  const body = `${lines.join('\n')}\n`;
   return `mailto:${SONG_REQUEST_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
 export async function submitSongRequest(input: {
   songName: string;
-  youtubeUrl: string;
+  feedback: string;
 }): Promise<SongRequestResult> {
   const songName = input.songName.trim();
-  const youtubeUrl = input.youtubeUrl.trim();
-  const mailtoUrl = buildSongRequestMailto(songName, youtubeUrl);
+  const feedback = input.feedback.trim();
+  const mailtoUrl = buildSongRequestMailto(songName, feedback);
 
   let serverRecorded = false;
   if (backendDetected !== false) {
@@ -585,7 +602,7 @@ export async function submitSongRequest(input: {
       const res = await fetch('/api/song-requests', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ songName, youtubeUrl }),
+        body: JSON.stringify({ songName, feedback }),
       });
       if (isJsonResponse(res)) {
         backendDetected = true;
@@ -595,13 +612,13 @@ export async function submitSongRequest(input: {
           deliveredVia?: string;
         };
         if (!res.ok) {
-          throw new Error(data.error || 'Unable to submit song request.');
+          throw new Error(data.error || 'Unable to submit tune request.');
         }
         if (data.deliveredVia === 'server-email') {
           return {
             ok: true,
             status: 'sent',
-            message: `Your song request has been sent to ${SONG_REQUEST_EMAIL}.`,
+            message: `Your tune request has been sent to ${SONG_REQUEST_EMAIL}.`,
             mailtoUrl,
           };
         }
@@ -623,9 +640,11 @@ export async function submitSongRequest(input: {
         Accept: 'application/json',
       },
       body: JSON.stringify({
-        _subject: `GullyGroove Song Request: ${songName}`,
-        song_name: songName,
-        youtube_link: youtubeUrl,
+        _subject: songName
+          ? `GullyGroove Tune Request: ${songName}`
+          : 'GullyGroove Tune Request & Feedback',
+        song_name: songName || '(Feedback only)',
+        feedback_comment: feedback || '(No additional comment)',
         source: 'GullyGroove Music App',
         _template: 'table',
         _captcha: 'false',

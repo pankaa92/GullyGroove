@@ -11,17 +11,29 @@ import { ItunesPreviewProvider } from './itunesProvider';
 import { JamendoCcProvider } from './jamendoProvider';
 import { YoutubeDataProvider } from './youtubeProvider';
 
+const LEGACY_PLAYLIST_MAP: Record<string, string> = {
+  'traveling-vibes': 'bus-driver-playlist',
+  'evergreen-bollywood': '90s-hindi-classics',
+  'nepali-hits': 'nepali-northeast-hits',
+  'northeast-hits': 'nepali-northeast-hits',
+  'punjabi-party-hits': 'party-dj-hits',
+  'dj-love-mashups': 'party-dj-hits',
+  'bollywood-romantic-hits': 'top-50-hindi',
+};
+
 class CatalogService {
   private tracks: Track[] = INITIAL_TRACKS.map((t) => ({
     ...t,
     playlistIds: Array.from(
       new Set(
-        t.playlistIds.filter(
-          (id) =>
-            id !== 'relaxing-music' &&
-            id !== 'gapless-playback' &&
-            id !== 'trending-international'
-        )
+        t.playlistIds
+          .filter(
+            (id) =>
+              id !== 'relaxing-music' &&
+              id !== 'gapless-playback' &&
+              id !== 'trending-international'
+          )
+          .map((id) => LEGACY_PLAYLIST_MAP[id] || id)
       )
     ),
   }));

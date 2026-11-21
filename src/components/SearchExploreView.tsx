@@ -43,8 +43,13 @@ export function SearchExploreView({
 
   const [localTracks, setLocalTracks] = useState<Track[]>([]);
   const [externalTracks, setExternalTracks] = useState<Track[]>([]);
+  const [visibleLocalCount, setVisibleLocalCount] = useState(80);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    setVisibleLocalCount(80);
+  }, [query, artist, album, genre, language, providerId, directAudioOnly]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -376,22 +381,45 @@ export function SearchExploreView({
               </button>
             </div>
           ) : (
-            <div className="divide-y divide-white/[0.04]">
-              {displayedLocalTracks.map((track, idx) => (
-                <TrackRow
-                  key={track.id}
-                  track={track}
-                  index={idx}
-                  isCurrent={currentTrackId === track.id}
-                  isPlaying={isPlaying}
-                  isFavorite={favorites.has(track.id)}
-                  playlists={playlists}
-                  onPlayToggle={(t) => onPlayTrack(t, displayedLocalTracks)}
-                  onToggleFavorite={onToggleFavorite}
-                  onAddToPlaylist={onAddToPlaylist}
-                />
-              ))}
-            </div>
+            <>
+              <div className="divide-y divide-white/[0.04]">
+                {displayedLocalTracks
+                  .slice(0, visibleLocalCount)
+                  .map((track, idx) => (
+                    <TrackRow
+                      key={track.id}
+                      track={track}
+                      index={idx}
+                      isCurrent={currentTrackId === track.id}
+                      isPlaying={isPlaying}
+                      isFavorite={favorites.has(track.id)}
+                      playlists={playlists}
+                      onPlayToggle={(t) => onPlayTrack(t, displayedLocalTracks)}
+                      onToggleFavorite={onToggleFavorite}
+                      onAddToPlaylist={onAddToPlaylist}
+                    />
+                  ))}
+              </div>
+
+              {displayedLocalTracks.length > visibleLocalCount ? (
+                <div className="pt-4 flex flex-wrap items-center justify-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setVisibleLocalCount((prev) => prev + 100)}
+                    className="inline-flex h-10 items-center justify-center px-5 rounded-xl bg-white/[0.07] hover:bg-white/[0.12] border border-white/10 text-xs font-semibold text-white transition-colors"
+                  >
+                    Load 100 More ({visibleLocalCount} of {displayedLocalTracks.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setVisibleLocalCount(displayedLocalTracks.length)}
+                    className="inline-flex h-10 items-center justify-center px-4 rounded-xl text-xs font-medium text-blue-300 hover:text-blue-200 transition-colors"
+                  >
+                    Show All {displayedLocalTracks.length} Songs
+                  </button>
+                </div>
+              ) : null}
+            </>
           )}
         </div>
       ) : null}

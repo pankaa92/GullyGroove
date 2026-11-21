@@ -65,9 +65,12 @@ export interface Track {
   streamUrl: string;
   externalUrl?: string;
   embedId?: string;
+  fallbackEmbedIds?: string[];
   attribution?: string;
   playlistIds: string[];
   audioProfile?: AudioProfile;
+  hookStartSec?: number;
+  hookEndSec?: number;
   plays: number;
   isUserAdded?: boolean;
 }

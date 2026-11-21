@@ -1,4 +1,5 @@
 import type { Playlist, Track } from '../types/music';
+import { BAJAO_SONGS } from './bajaoSongs';
 
 export const COVER_ASSETS = {
   heroStage: 'src/assets/images/hero_gullygroove_stage_1794817358522.jpg',
@@ -12,6 +13,8 @@ export const COVER_ASSETS = {
   southCinema: 'src/assets/images/cover_south_cinema_1795179418278.jpg',
   himalayanFolk: 'src/assets/images/cover_himalayan_folk_1795179418441.jpg',
   salonGroove: 'src/assets/images/cover_salon_groove_1795179418045.jpg',
+  bhaktiAarti: 'src/assets/images/cover_bhakti_aarti_1795262647382.jpg',
+  sabChalega: 'src/assets/images/cover_sab_chalega_1795262647581.jpg',
 } as const;
 
 export const INITIAL_PLAYLISTS: Playlist[] = [
@@ -19,10 +22,10 @@ export const INITIAL_PLAYLISTS: Playlist[] = [
     id: 'top-50-hindi',
     slug: 'top-hindi-songs',
     title: 'Top Hindi Songs',
-    subtitle: 'India’s biggest Hindi chart-toppers right now',
+    subtitle: 'India’s biggest Hindi chart-toppers & Bollywood romantic hits',
     description:
-      'From Mumbai studio anthems to late-night acoustic ballads dominating reels and radio across India.',
-    mood: 'Chartbusters',
+      'From Mumbai studio anthems and Bollywood romantic duets to late-night acoustic ballads dominating reels and radio across India.',
+    mood: 'Chartbusters & Romance',
     region: 'India',
     coverUrl: COVER_ASSETS.heroStage,
     curatedBy: 'GullyGroove Editorial',
@@ -57,26 +60,13 @@ export const INITIAL_PLAYLISTS: Playlist[] = [
     id: 'bus-driver-playlist',
     slug: 'bus-driver-playlist',
     title: 'Bus Driver Playlist',
-    subtitle: 'Iconic NH-48 dhabha classics & 90s highway gold',
+    subtitle: 'NH-48 dhabha classics, road trip vibes & 90s highway gold',
     description:
-      'High-nostalgia rhythm, dholak-driven melodies, and timeless singalongs that keep overnight coaches rolling.',
-    mood: 'Highway Nostalgia',
+      'High-nostalgia rhythm, dholak-driven melodies, window-seat road trip songs, and timeless singalongs that keep overnight coaches rolling.',
+    mood: 'Highway & Road Trip',
     region: 'Pan-India',
     coverUrl: COVER_ASSETS.highwayBus,
     curatedBy: 'Highway Radio Desk',
-    featured: true,
-  },
-  {
-    id: 'traveling-vibes',
-    slug: 'traveling-vibes',
-    title: 'Traveling Vibes',
-    subtitle: 'Window-seat melodies for hills & expressways',
-    description:
-      'Breezy acoustic guitars, monsoon road rhythms, and open-sky choruses made for Manali, Goa, and Konkan drives.',
-    mood: 'Road Trip',
-    region: 'India',
-    coverUrl: COVER_ASSETS.himalayanFolk,
-    curatedBy: 'GullyGroove Editorial',
     featured: true,
   },
   {
@@ -119,41 +109,16 @@ export const INITIAL_PLAYLISTS: Playlist[] = [
     featured: true,
   },
   {
-    id: 'dj-love-mashups',
-    slug: 'dj-love-mashups',
-    title: 'DJ & Love Mashups',
-    subtitle: 'Nonstop Bollywood DJ remixes & romantic mashups',
+    id: 'party-dj-hits',
+    slug: 'party-and-dj-hits',
+    title: 'Party and DJ Hits',
+    subtitle: 'Punjabi dhol drops, Bollywood DJ remixes & nonstop love mashups',
     description:
-      'High-energy club DJ mixes, party mashups, and soulful YouTube Bollywood love mashups for long nights and celebrations.',
-    mood: 'Mashup & Club',
-    region: 'Pan-India',
-    coverUrl: COVER_ASSETS.salonGroove,
-    curatedBy: 'GullyGroove Club Desk',
-    featured: true,
-  },
-  {
-    id: 'bollywood-romantic-hits',
-    slug: 'bollywood-romantic-hits',
-    title: 'Bollywood Romantic Hits',
-    subtitle: 'Monsoon rain, Marine Drive lights & pure heart',
-    description:
-      'Lush orchestral arrangements, sitar-laced intros, and heartfelt duets crafted for slow evenings.',
-    mood: 'Romantic',
-    region: 'India',
-    coverUrl: COVER_ASSETS.bollywoodRomantic,
-    curatedBy: 'GullyGroove Editorial',
-  },
-  {
-    id: 'punjabi-party-hits',
-    slug: 'punjabi-party-hits',
-    title: 'Punjabi Party Hits',
-    subtitle: 'Heavy dhol drops, tumbi riffs & 808 bass',
-    description:
-      'Turn up weddings, sangeet floors, and weekend car stereos with Chandigarh and Ludhiana club energy.',
-    mood: 'High Energy',
+      'High-energy club DJ mixes, Chandigarh bhangra bangers, party mashups, and soulful Bollywood love mashups for long nights and celebrations.',
+    mood: 'Party & DJ Mix',
     region: 'Pan-India',
     coverUrl: COVER_ASSETS.punjabiParty,
-    curatedBy: 'Chandigarh Sound Desk',
+    curatedBy: 'GullyGroove Club & Chandigarh Desk',
     featured: true,
   },
   {
@@ -170,16 +135,16 @@ export const INITIAL_PLAYLISTS: Playlist[] = [
     featured: true,
   },
   {
-    id: 'nepali-hits',
-    slug: 'nepali-hits',
-    title: 'Nepali Hits',
-    subtitle: 'Kathmandu indie, folk classics & Nepali film favorites',
+    id: 'nepali-northeast-hits',
+    slug: 'nepali-and-northeast-hits',
+    title: 'Nepali and North East Hits',
+    subtitle: 'Kathmandu indie, Assamese, Manipuri, Nagamese, Mizo, Khasi & Bodo gems',
     description:
-      'Beloved Nepali anthems from Sajjan Raj Vaidya, Swoopna Suman, Hemant Rana, Kutu Ma Kutu, Phul Butte Sari & Resham Firiri.',
-    mood: 'Himalayan Soul',
+      'Beloved Nepali and Seven Sisters anthems from Sajjan Raj Vaidya, Swoopna Suman, Hemant Rana, Zubeen Garg, Papon, Tetseo Sisters & Pushparani Huidrom.',
+    mood: 'Himalayan & Seven Sisters',
     region: 'Pan-India',
     coverUrl: COVER_ASSETS.himalayanFolk,
-    curatedBy: 'Himalayan Sound Desk',
+    curatedBy: 'Himalayan & Guwahati Desk',
     featured: true,
   },
   {
@@ -196,42 +161,17 @@ export const INITIAL_PLAYLISTS: Playlist[] = [
     featured: true,
   },
   {
-    id: 'northeast-hits',
-    slug: 'northeast-hits',
-    title: 'North East Hits',
-    subtitle: 'Assamese, Manipuri, Nagamese, Mizo, Khasi & Bodo gems',
-    description:
-      'Iconic melodies and folk-fusion from Zubeen Garg, Papon, Tetseo Sisters, Pushparani Huidrom, Mami Varte, Khasi & Bodo artists.',
-    mood: 'Seven Sisters',
-    region: 'Pan-India',
-    coverUrl: COVER_ASSETS.himalayanFolk,
-    curatedBy: 'Guwahati & Shillong Desk',
-    featured: true,
-  },
-  {
     id: '90s-hindi-classics',
     slug: '90s-hindi-classics',
     title: '90s Hindi Classics',
-    subtitle: 'Kumar Sanu, Udit Narayan & golden cassette romance',
+    subtitle: 'Kumar Sanu, Udit Narayan, golden-era vinyl & evergreen Bollywood',
     description:
-      'Relive the 1990s Bollywood melody era with iconic duets, cassette-era heartbreakers, and timeless love anthems.',
-    mood: '90s Nostalgia',
+      'Relive the 1990s Bollywood melody era and golden-era vinyl classics with iconic duets, cassette-era heartbreakers, and timeless love anthems.',
+    mood: '90s & Evergreen',
     region: 'India',
     coverUrl: COVER_ASSETS.evergreenRetro,
-    curatedBy: '90s Cassette Archive',
+    curatedBy: '90s Cassette & Heritage Archive',
     featured: true,
-  },
-  {
-    id: 'evergreen-bollywood',
-    slug: 'evergreen-bollywood',
-    title: 'Evergreen Bollywood',
-    subtitle: 'Golden-era vinyl warmth & timeless melodies',
-    description:
-      'Analog tape textures, warm strings, and classic compositions inspired by 70s and 80s Bombay cinema.',
-    mood: 'Classic Vinyl',
-    region: 'India',
-    coverUrl: COVER_ASSETS.evergreenRetro,
-    curatedBy: 'Heritage Archive',
   },
   {
     id: 'workout-motivation',
@@ -245,9 +185,35 @@ export const INITIAL_PLAYLISTS: Playlist[] = [
     coverUrl: COVER_ASSETS.internationalChill,
     curatedBy: 'GullyGroove Athletics',
   },
+  {
+    id: 'bhakti-bhajan-aarti',
+    slug: 'bhakti-bhajan-aarti',
+    title: 'Bhakti, Bhajan & Aarti',
+    subtitle: 'Morning Hanuman Chalisa, Shiv Tandav, Krishna Aarti & temple chants',
+    description:
+      'Sacred morning aartis, Hariharan’s Hanuman Chalisa, Shankar Mahadevan’s Shiv Tandav Stotram, and serene meditative chants for home and travel.',
+    mood: 'Devotional & Peace',
+    region: 'Pan-India',
+    coverUrl: COVER_ASSETS.bhaktiAarti,
+    curatedBy: 'GullyGroove Bhakti Desk',
+    featured: true,
+  },
+  {
+    id: 'sab-chalega',
+    slug: 'sab-chalega',
+    title: 'All in One',
+    subtitle: 'All-in-one cross-genre mix: Bollywood, Punjabi, South, Bhojpuri & 90s',
+    description:
+      'No mood rules — an all-access Indian jukebox blending Bollywood chartbusters, Punjabi dhol, Haryanvi swag, South blockbusters, Bhojpuri beats & 90s gold.',
+    mood: 'All-in-One Mix',
+    region: 'Pan-India',
+    coverUrl: COVER_ASSETS.sabChalega,
+    curatedBy: 'GullyGroove All-Access Desk',
+    featured: true,
+  },
 ];
 
-export const INITIAL_TRACKS: Track[] = [
+const BASE_CURATED_TRACKS: Track[] = [
   {
     id: 'yt-suw-DufKKTA',
     title: 'Bus Driver Playlist (Old Song Mashup)',
@@ -273,54 +239,6 @@ export const INITIAL_TRACKS: Track[] = [
     plays: 1450000,
   },
   {
-    id: 'yt-1VdMEriTiDk',
-    title: 'Indian Bus Driver Playlist (Part 2) | Hindi 90s Songs',
-    artist: 'pk mehta · 90s Bollywood',
-    album: 'Highway Old Is Gold Collection',
-    genre: 'Highway Retro',
-    language: 'Hindi',
-    durationSec: 0,
-    bpm: 102,
-    year: 2025,
-    coverUrl: 'https://i.ytimg.com/vi/1VdMEriTiDk/hqdefault.jpg',
-    providerId: 'youtube-data',
-    providerName: 'YouTube Official Embed',
-    licenseType: 'Metadata & Official Embed',
-    licenseSummary:
-      'Plays directly via the official YouTube embedded player, respecting YouTube playback policies.',
-    playbackRights: 'embed-only',
-    streamUrl: '',
-    embedId: '1VdMEriTiDk',
-    externalUrl: 'https://youtu.be/1VdMEriTiDk?si=ys_gmI6RHzKEejtJ',
-    attribution: 'Official YouTube Channel: pk mehta',
-    playlistIds: ['bus-driver-playlist', '90s-hindi-classics'],
-    plays: 1120000,
-  },
-  {
-    id: 'yt-HUZhV8EFrNU',
-    title: 'Indian Bus Driver Playlist (Part 4) | Hindi 90s Songs | Kumar Sanu',
-    artist: 'pk mehta · Kumar Sanu',
-    album: 'Highway Old Is Gold Collection',
-    genre: 'Highway Retro',
-    language: 'Hindi',
-    durationSec: 0,
-    bpm: 100,
-    year: 2025,
-    coverUrl: 'https://i.ytimg.com/vi/HUZhV8EFrNU/hqdefault.jpg',
-    providerId: 'youtube-data',
-    providerName: 'YouTube Official Embed',
-    licenseType: 'Metadata & Official Embed',
-    licenseSummary:
-      'Plays directly via the official YouTube embedded player, respecting YouTube playback policies.',
-    playbackRights: 'embed-only',
-    streamUrl: '',
-    embedId: 'HUZhV8EFrNU',
-    externalUrl: 'https://youtu.be/HUZhV8EFrNU?si=2iAEorGgdqlythy0',
-    attribution: 'Official YouTube Channel: pk mehta',
-    playlistIds: ['bus-driver-playlist', '90s-hindi-classics'],
-    plays: 980000,
-  },
-  {
     id: 'yt-CVI4CZVUd7E',
     title: 'Emotional Road Trip Jukebox | Best Travelling Songs',
     artist: 'Hansel D',
@@ -341,7 +259,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'CVI4CZVUd7E',
     externalUrl: 'https://youtu.be/CVI4CZVUd7E?si=1co6-I2wrRdw1VrI',
     attribution: 'Official YouTube Channel: Hansel D',
-    playlistIds: ['traveling-vibes'],
+    playlistIds: ['bus-driver-playlist'],
     plays: 1680000,
   },
   {
@@ -389,7 +307,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'kunopR2wnQ0',
     externalUrl: 'https://youtu.be/kunopR2wnQ0',
     attribution: 'Official YouTube Channel: Hindi Bollywood Romantic Songs',
-    playlistIds: ['dj-love-mashups', 'bollywood-romantic-hits'],
+    playlistIds: ['party-dj-hits', 'top-50-hindi'],
     plays: 4850000,
   },
   {
@@ -413,7 +331,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'zZAZqtiNe_g',
     externalUrl: 'https://youtu.be/zZAZqtiNe_g',
     attribution: 'Official YouTube Channel: MusicWorldOfficial07',
-    playlistIds: ['dj-love-mashups', 'bollywood-romantic-hits', 'traveling-vibes'],
+    playlistIds: ['party-dj-hits', 'top-50-hindi', 'bus-driver-playlist'],
     plays: 3120000,
   },
   {
@@ -437,7 +355,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'zRW81KBdDe8',
     externalUrl: 'https://youtu.be/zRW81KBdDe8',
     attribution: 'Official YouTube Channel: SICKFORGE',
-    playlistIds: ['2am-playlist', 'dj-love-mashups', 'bollywood-romantic-hits', 'evening-daru-playlist'],
+    playlistIds: ['2am-playlist', 'party-dj-hits', 'top-50-hindi', 'evening-daru-playlist'],
     plays: 2640000,
   },
   {
@@ -461,7 +379,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: '95HD3Cpkr1k',
     externalUrl: 'https://youtu.be/95HD3Cpkr1k',
     attribution: 'Official YouTube Channel: Rolex Music',
-    playlistIds: ['dj-love-mashups', 'bollywood-romantic-hits', 'saloon-playlist'],
+    playlistIds: ['party-dj-hits', 'top-50-hindi', 'saloon-playlist'],
     plays: 2290000,
   },
   {
@@ -485,7 +403,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: '1Vns6GKPt38',
     externalUrl: 'https://youtu.be/1Vns6GKPt38',
     attribution: 'Official YouTube Channel: VS Lofi-19',
-    playlistIds: ['dj-love-mashups', 'bollywood-romantic-hits', 'traveling-vibes'],
+    playlistIds: ['party-dj-hits', 'top-50-hindi', 'bus-driver-playlist'],
     plays: 1980000,
   },
   {
@@ -509,7 +427,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'uWxcTw6Ast8',
     externalUrl: 'https://youtu.be/uWxcTw6Ast8',
     attribution: 'Official YouTube Channel: Beat Magic',
-    playlistIds: ['dj-love-mashups', 'bollywood-romantic-hits'],
+    playlistIds: ['party-dj-hits', 'top-50-hindi'],
     plays: 1740000,
   },
   {
@@ -533,7 +451,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'ft7D4XIKpcs',
     externalUrl: 'https://youtu.be/ft7D4XIKpcs',
     attribution: 'Official YouTube Channel: Cupid’s Mix ESM',
-    playlistIds: ['dj-love-mashups', 'evening-daru-playlist', 'bollywood-romantic-hits'],
+    playlistIds: ['party-dj-hits', 'evening-daru-playlist', 'top-50-hindi'],
     plays: 2150000,
   },
   {
@@ -555,7 +473,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/ANM13',
     externalUrl: 'https://audius.co',
     attribution: 'PARTYPREET via Audius Open Streaming',
-    playlistIds: ['top-50-hindi', 'bollywood-romantic-hits', 'traveling-vibes'],
+    playlistIds: ['top-50-hindi', 'bus-driver-playlist', 'sab-chalega'],
     audioProfile: { bpm: 120, rootHz: 261.63, scale: 'yaman', groove: 'bollywood-romantic', intensity: 0.78 },
     plays: 1842900,
   },
@@ -578,7 +496,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/bdK4W',
     externalUrl: 'https://audius.co',
     attribution: 'YKK via Audius Open Streaming',
-    playlistIds: ['punjabi-party-hits', 'top-50-hindi', 'saloon-playlist', 'workout-motivation'],
+    playlistIds: ['party-dj-hits', 'top-50-hindi', 'saloon-playlist', 'workout-motivation', 'sab-chalega'],
     audioProfile: { bpm: 124, rootHz: 293.66, scale: 'pentatonic', groove: 'punjabi-dhol', intensity: 0.92 },
     plays: 2410500,
   },
@@ -601,7 +519,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/Jb3pA2d',
     externalUrl: 'https://audius.co',
     attribution: 'NFThunk via Audius Open Streaming',
-    playlistIds: ['bus-driver-playlist', 'evergreen-bollywood', 'traveling-vibes', 'bollywood-romantic-hits'],
+    playlistIds: ['bus-driver-playlist', '90s-hindi-classics', 'top-50-hindi', 'sab-chalega'],
     audioProfile: { bpm: 102, rootHz: 246.94, scale: 'bhairavi', groove: 'highway-folk', intensity: 0.78 },
     plays: 1920400,
   },
@@ -624,7 +542,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/KlGaBJy',
     externalUrl: 'https://audius.co',
     attribution: 'Vini via Audius Open Streaming',
-    playlistIds: ['evening-daru-playlist', 'bollywood-romantic-hits'],
+    playlistIds: ['evening-daru-playlist', 'top-50-hindi'],
     audioProfile: { bpm: 84, rootHz: 220.0, scale: 'bhairavi', groove: 'sufi-chill', intensity: 0.65 },
     plays: 985200,
   },
@@ -647,7 +565,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/50ENP3g',
     externalUrl: 'https://audius.co',
     attribution: 'NFThunk via Audius Open Streaming',
-    playlistIds: ['traveling-vibes', 'top-50-hindi', 'bollywood-romantic-hits'],
+    playlistIds: ['bus-driver-playlist', 'top-50-hindi'],
     audioProfile: { bpm: 78, rootHz: 261.63, scale: 'yaman', groove: 'lofi-ambient', intensity: 0.58 },
     plays: 1522000,
   },
@@ -670,7 +588,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/RNYgX',
     externalUrl: 'https://audius.co',
     attribution: 'Paul Lee via Audius Open Streaming',
-    playlistIds: ['saloon-playlist', 'top-50-hindi', 'punjabi-party-hits'],
+    playlistIds: ['saloon-playlist', 'top-50-hindi', 'party-dj-hits', 'sab-chalega'],
     audioProfile: { bpm: 116, rootHz: 277.18, scale: 'dorian', groove: 'punjabi-dhol', intensity: 0.85 },
     plays: 865400,
   },
@@ -693,7 +611,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/YJ1y6J',
     externalUrl: 'https://audius.co',
     attribution: 'Aks via Audius Open Streaming',
-    playlistIds: ['traveling-vibes', 'evening-daru-playlist'],
+    playlistIds: ['bus-driver-playlist', 'evening-daru-playlist', 'bhakti-bhajan-aarti'],
     audioProfile: { bpm: 72, rootHz: 196.0, scale: 'yaman', groove: 'lofi-ambient', intensity: 0.55 },
     plays: 1104800,
   },
@@ -716,7 +634,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/bm3EYBk',
     externalUrl: 'https://audius.co',
     attribution: 'camoufly via Audius Open Streaming',
-    playlistIds: ['workout-motivation', 'punjabi-party-hits', 'top-50-hindi'],
+    playlistIds: ['workout-motivation', 'party-dj-hits', 'top-50-hindi', 'sab-chalega'],
     audioProfile: { bpm: 132, rootHz: 164.81, scale: 'minor', groove: 'workout-edm', intensity: 0.96 },
     plays: 1749200,
   },
@@ -739,7 +657,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/GQOjWBj',
     externalUrl: 'https://audius.co',
     attribution: 'ParveZ BhuiyaN via Audius Open Streaming',
-    playlistIds: ['evergreen-bollywood', 'bus-driver-playlist', 'evening-daru-playlist'],
+    playlistIds: ['90s-hindi-classics', 'bus-driver-playlist', 'evening-daru-playlist'],
     audioProfile: { bpm: 88, rootHz: 233.08, scale: 'major', groove: 'retro-vinyl', intensity: 0.68 },
     plays: 2190300,
   },
@@ -785,7 +703,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/R6WGZ',
     externalUrl: 'https://audius.co',
     attribution: 'IronFeather via Audius Open Streaming',
-    playlistIds: ['evening-daru-playlist', 'evergreen-bollywood'],
+    playlistIds: ['evening-daru-playlist', '90s-hindi-classics'],
     audioProfile: { bpm: 90, rootHz: 246.94, scale: 'bhairavi', groove: 'sufi-chill', intensity: 0.7 },
     plays: 1620100,
   },
@@ -808,7 +726,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/jvxl4',
     externalUrl: 'https://audius.co',
     attribution: 'Konaefiz via Audius Open Streaming',
-    playlistIds: ['punjabi-party-hits', 'bus-driver-playlist', 'workout-motivation'],
+    playlistIds: ['party-dj-hits', 'bus-driver-playlist', 'workout-motivation'],
     audioProfile: { bpm: 128, rootHz: 311.13, scale: 'pentatonic', groove: 'punjabi-dhol', intensity: 0.94 },
     plays: 1945000,
   },
@@ -831,7 +749,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/OoWZz',
     externalUrl: 'https://audius.co',
     attribution: 'BASHER TOE via Audius Open Streaming',
-    playlistIds: ['punjabi-party-hits', 'saloon-playlist', 'workout-motivation'],
+    playlistIds: ['party-dj-hits', 'saloon-playlist', 'workout-motivation'],
     audioProfile: { bpm: 130, rootHz: 220.0, scale: 'pentatonic', groove: 'punjabi-dhol', intensity: 0.91 },
     plays: 1412300,
   },
@@ -854,7 +772,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/Y5YKy',
     externalUrl: 'https://audius.co',
     attribution: 'Amir Rad via Audius Open Streaming',
-    playlistIds: ['evening-daru-playlist', 'traveling-vibes', 'bus-driver-playlist'],
+    playlistIds: ['evening-daru-playlist', 'bus-driver-playlist'],
     audioProfile: { bpm: 118, rootHz: 261.63, scale: 'bhairavi', groove: 'sufi-chill', intensity: 0.72 },
     plays: 892000,
   },
@@ -900,7 +818,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/laPYZ',
     externalUrl: 'https://audius.co',
     attribution: 'Composer Squad via Audius Open Streaming',
-    playlistIds: ['workout-motivation', 'traveling-vibes', 'top-50-hindi'],
+    playlistIds: ['workout-motivation', 'bus-driver-playlist', 'top-50-hindi'],
     audioProfile: { bpm: 126, rootHz: 293.66, scale: 'major', groove: 'workout-edm', intensity: 0.88 },
     plays: 1290400,
   },
@@ -923,7 +841,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/A8g307',
     externalUrl: 'https://audius.co',
     attribution: 'Phuture Collective via Audius Open Streaming',
-    playlistIds: ['2am-playlist', 'traveling-vibes', 'saloon-playlist'],
+    playlistIds: ['2am-playlist', 'bus-driver-playlist', 'saloon-playlist'],
     audioProfile: { bpm: 114, rootHz: 196.0, scale: 'dorian', groove: 'global-pop', intensity: 0.78 },
     plays: 940500,
   },
@@ -969,7 +887,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/OPmEV6g',
     externalUrl: 'https://audius.co',
     attribution: 'Audius Open Streaming',
-    playlistIds: ['punjabi-party-hits', 'workout-motivation', 'saloon-playlist'],
+    playlistIds: ['party-dj-hits', 'workout-motivation', 'saloon-playlist'],
     audioProfile: { bpm: 102, rootHz: 293.66, scale: 'minor', groove: 'punjabi-dhol', intensity: 0.92 },
     plays: 2840000,
   },
@@ -992,7 +910,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/jZdk4',
     externalUrl: 'https://audius.co',
     attribution: 'Audius Open Streaming',
-    playlistIds: ['punjabi-party-hits', 'traveling-vibes', 'bus-driver-playlist'],
+    playlistIds: ['party-dj-hits', 'bus-driver-playlist'],
     audioProfile: { bpm: 94, rootHz: 261.63, scale: 'minor', groove: 'punjabi-dhol', intensity: 0.88 },
     plays: 3290000,
   },
@@ -1015,7 +933,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/yyJj7',
     externalUrl: 'https://audius.co',
     attribution: 'Audius Open Streaming',
-    playlistIds: ['punjabi-party-hits', 'saloon-playlist', 'traveling-vibes'],
+    playlistIds: ['party-dj-hits', 'saloon-playlist', 'bus-driver-playlist'],
     audioProfile: { bpm: 106, rootHz: 293.66, scale: 'pentatonic', groove: 'punjabi-dhol', intensity: 0.89 },
     plays: 1750000,
   },
@@ -1038,7 +956,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/3KRM8',
     externalUrl: 'https://audius.co',
     attribution: 'YKK via Audius Open Streaming',
-    playlistIds: ['punjabi-party-hits', 'saloon-playlist', 'workout-motivation'],
+    playlistIds: ['party-dj-hits', 'saloon-playlist', 'workout-motivation'],
     audioProfile: { bpm: 118, rootHz: 293.66, scale: 'pentatonic', groove: 'punjabi-dhol', intensity: 0.9 },
     plays: 1480000,
   },
@@ -1061,7 +979,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/KdEMw',
     externalUrl: 'https://audius.co',
     attribution: 'John Snow via Audius Open Streaming',
-    playlistIds: ['workout-motivation', 'punjabi-party-hits'],
+    playlistIds: ['workout-motivation', 'party-dj-hits'],
     audioProfile: { bpm: 132, rootHz: 220.0, scale: 'minor', groove: 'workout-edm', intensity: 0.95 },
     plays: 1340000,
   },
@@ -1084,7 +1002,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/V5mAb',
     externalUrl: 'https://audius.co',
     attribution: 'Jatin Kaul via Audius Open Streaming',
-    playlistIds: ['punjabi-party-hits', 'bus-driver-playlist', 'workout-motivation'],
+    playlistIds: ['party-dj-hits', 'bus-driver-playlist', 'workout-motivation', 'sab-chalega'],
     audioProfile: { bpm: 126, rootHz: 261.63, scale: 'pentatonic', groove: 'punjabi-dhol', intensity: 0.93 },
     plays: 2150000,
   },
@@ -1107,7 +1025,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/bvAPoXP',
     externalUrl: 'https://audius.co',
     attribution: 'DJ Nilesh Raj via Audius Open Streaming',
-    playlistIds: ['saloon-playlist', 'punjabi-party-hits', 'bus-driver-playlist'],
+    playlistIds: ['saloon-playlist', 'party-dj-hits', 'bus-driver-playlist'],
     audioProfile: { bpm: 124, rootHz: 246.94, scale: 'pentatonic', groove: 'punjabi-dhol', intensity: 0.9 },
     plays: 1690000,
   },
@@ -1153,7 +1071,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/rKwlV',
     externalUrl: 'https://audius.co',
     attribution: 'Pradeep via Audius Open Streaming',
-    playlistIds: ['bus-driver-playlist', 'traveling-vibes'],
+    playlistIds: ['bus-driver-playlist'],
     audioProfile: { bpm: 120, rootHz: 220.0, scale: 'major', groove: 'highway-folk', intensity: 0.84 },
     plays: 980000,
   },
@@ -1176,7 +1094,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/zb9ap',
     externalUrl: 'https://audius.co',
     attribution: 'DJ Dalal London via Audius Open Streaming',
-    playlistIds: ['bus-driver-playlist', 'saloon-playlist', 'punjabi-party-hits', 'bhojpuri-hits'],
+    playlistIds: ['bus-driver-playlist', 'saloon-playlist', 'party-dj-hits', 'bhojpuri-hits', 'sab-chalega'],
     audioProfile: { bpm: 128, rootHz: 261.63, scale: 'pentatonic', groove: 'punjabi-dhol', intensity: 0.92 },
     plays: 2310000,
   },
@@ -1222,7 +1140,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/MpQ927V',
     externalUrl: 'https://audius.co',
     attribution: 'NITESH via Audius Open Streaming',
-    playlistIds: ['bus-driver-playlist', 'punjabi-party-hits', 'workout-motivation', 'bhojpuri-hits'],
+    playlistIds: ['bus-driver-playlist', 'party-dj-hits', 'workout-motivation', 'bhojpuri-hits'],
     audioProfile: { bpm: 130, rootHz: 293.66, scale: 'pentatonic', groove: 'punjabi-dhol', intensity: 0.94 },
     plays: 1890000,
   },
@@ -1245,7 +1163,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/P7BvZv5',
     externalUrl: 'https://audius.co',
     attribution: 'Mayank SK via Audius Open Streaming',
-    playlistIds: ['90s-hindi-classics', 'evergreen-bollywood', 'bollywood-romantic-hits', 'bus-driver-playlist'],
+    playlistIds: ['90s-hindi-classics', 'top-50-hindi', 'bus-driver-playlist'],
     audioProfile: { bpm: 94, rootHz: 246.94, scale: 'yaman', groove: 'retro-vinyl', intensity: 0.72 },
     plays: 2460000,
   },
@@ -1268,7 +1186,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/1a8JQay',
     externalUrl: 'https://audius.co',
     attribution: 'ABHAY KUMAR via Audius Open Streaming',
-    playlistIds: ['90s-hindi-classics', 'bollywood-romantic-hits', 'evergreen-bollywood', 'traveling-vibes'],
+    playlistIds: ['90s-hindi-classics', 'top-50-hindi', 'bus-driver-playlist'],
     audioProfile: { bpm: 90, rootHz: 261.63, scale: 'bhairavi', groove: 'bollywood-romantic', intensity: 0.68 },
     plays: 2110000,
   },
@@ -1291,7 +1209,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/AM2yq',
     externalUrl: 'https://audius.co',
     attribution: 'Nikhil via Audius Open Streaming',
-    playlistIds: ['90s-hindi-classics', 'evergreen-bollywood', 'evening-daru-playlist'],
+    playlistIds: ['90s-hindi-classics', 'evening-daru-playlist'],
     audioProfile: { bpm: 88, rootHz: 220.0, scale: 'yaman', groove: 'retro-vinyl', intensity: 0.65 },
     plays: 2980000,
   },
@@ -1314,7 +1232,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/E2WJjWR',
     externalUrl: 'https://audius.co',
     attribution: 'Parameswara Reddy M via Audius Open Streaming',
-    playlistIds: ['90s-hindi-classics', 'evergreen-bollywood', 'bus-driver-playlist', 'saloon-playlist'],
+    playlistIds: ['90s-hindi-classics', 'bus-driver-playlist', 'saloon-playlist'],
     audioProfile: { bpm: 114, rootHz: 293.66, scale: 'major', groove: 'highway-folk', intensity: 0.8 },
     plays: 1740000,
   },
@@ -1337,7 +1255,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/3RAkMBB',
     externalUrl: 'https://audius.co',
     attribution: 'NFThunk via Audius Open Streaming',
-    playlistIds: ['90s-hindi-classics', 'dj-love-mashups', 'bus-driver-playlist', 'evergreen-bollywood', 'traveling-vibes'],
+    playlistIds: ['90s-hindi-classics', 'party-dj-hits', 'bus-driver-playlist'],
     audioProfile: { bpm: 104, rootHz: 261.63, scale: 'yaman', groove: 'retro-vinyl', intensity: 0.78 },
     plays: 3650000,
   },
@@ -1360,7 +1278,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/myGb4dQ',
     externalUrl: 'https://audius.co',
     attribution: 'NFThunk via Audius Open Streaming',
-    playlistIds: ['90s-hindi-classics', 'evening-daru-playlist', 'evergreen-bollywood', 'bollywood-romantic-hits'],
+    playlistIds: ['90s-hindi-classics', 'evening-daru-playlist', 'top-50-hindi'],
     audioProfile: { bpm: 92, rootHz: 233.08, scale: 'bhairavi', groove: 'sufi-chill', intensity: 0.68 },
     plays: 3180000,
   },
@@ -1383,7 +1301,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/vJGzzZV',
     externalUrl: 'https://audius.co',
     attribution: 'NFThunk via Audius Open Streaming',
-    playlistIds: ['dj-love-mashups', 'punjabi-party-hits', 'top-50-hindi', 'workout-motivation'],
+    playlistIds: ['party-dj-hits', 'top-50-hindi', 'workout-motivation'],
     audioProfile: { bpm: 128, rootHz: 293.66, scale: 'minor', groove: 'workout-edm', intensity: 0.94 },
     plays: 3420000,
   },
@@ -1406,7 +1324,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/Kdl5lWy',
     externalUrl: 'https://audius.co',
     attribution: 'NFThunk via Audius Open Streaming',
-    playlistIds: ['dj-love-mashups', 'saloon-playlist', 'punjabi-party-hits', 'workout-motivation'],
+    playlistIds: ['party-dj-hits', 'saloon-playlist', 'workout-motivation'],
     audioProfile: { bpm: 130, rootHz: 261.63, scale: 'pentatonic', groove: 'punjabi-dhol', intensity: 0.95 },
     plays: 2790000,
   },
@@ -1429,7 +1347,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/5QN5b3V',
     externalUrl: 'https://audius.co',
     attribution: 'NFThunk via Audius Open Streaming',
-    playlistIds: ['dj-love-mashups', 'punjabi-party-hits', 'bus-driver-playlist'],
+    playlistIds: ['party-dj-hits', 'bus-driver-playlist'],
     audioProfile: { bpm: 128, rootHz: 220.0, scale: 'minor', groove: 'workout-edm', intensity: 0.92 },
     plays: 2540000,
   },
@@ -1452,7 +1370,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/QZxdzK9',
     externalUrl: 'https://audius.co',
     attribution: 'NFThunk via Audius Open Streaming',
-    playlistIds: ['dj-love-mashups', 'bollywood-romantic-hits', 'top-50-hindi', 'traveling-vibes'],
+    playlistIds: ['party-dj-hits', 'top-50-hindi', 'bus-driver-playlist'],
     audioProfile: { bpm: 100, rootHz: 261.63, scale: 'yaman', groove: 'bollywood-romantic', intensity: 0.78 },
     plays: 3120000,
   },
@@ -1475,7 +1393,7 @@ export const INITIAL_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/l4YXjrl',
     externalUrl: 'https://audius.co',
     attribution: 'NFThunk via Audius Open Streaming',
-    playlistIds: ['dj-love-mashups', '90s-hindi-classics', 'traveling-vibes', 'bollywood-romantic-hits'],
+    playlistIds: ['party-dj-hits', '90s-hindi-classics', 'bus-driver-playlist', 'top-50-hindi'],
     audioProfile: { bpm: 108, rootHz: 246.94, scale: 'yaman', groove: 'bollywood-romantic', intensity: 0.82 },
     plays: 2940000,
   },
@@ -1525,7 +1443,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: '3KfZVtjsRdo',
     externalUrl: 'https://youtu.be/3KfZVtjsRdo?si=PJWDhIHXhrMAKK4v',
     attribution: 'Official YouTube Channel: Sony Music India',
-    playlistIds: ['saloon-playlist', 'evergreen-bollywood', '90s-hindi-classics'],
+    playlistIds: ['saloon-playlist', '90s-hindi-classics'],
     plays: 3450000,
   },
   {
@@ -1549,7 +1467,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'V2-ywF7jQV0',
     externalUrl: 'https://youtu.be/V2-ywF7jQV0?si=z0XQoBd0TFO-rGMb',
     attribution: 'Official YouTube Channel: Aridom Manna',
-    playlistIds: ['saloon-playlist', 'evergreen-bollywood'],
+    playlistIds: ['saloon-playlist', '90s-hindi-classics'],
     plays: 2780000,
   },
   // YouTube DJ Mashups
@@ -1574,7 +1492,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'KIXM2QjDHdY',
     externalUrl: 'https://youtu.be/KIXM2QjDHdY',
     attribution: 'Official YouTube Channel: DJ Rhythm Vibes',
-    playlistIds: ['dj-love-mashups', 'shadi-sangeet-playlist', 'punjabi-party-hits', 'workout-motivation'],
+    playlistIds: ['party-dj-hits', 'shadi-sangeet-playlist', 'workout-motivation', 'sab-chalega'],
     plays: 2480000,
   },
   {
@@ -1598,7 +1516,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'RNe9Pa-vFmk',
     externalUrl: 'https://youtu.be/RNe9Pa-vFmk',
     attribution: 'Official YouTube Channel: DJ Rhythm Vibes',
-    playlistIds: ['dj-love-mashups', 'shadi-sangeet-playlist', 'punjabi-party-hits', 'saloon-playlist'],
+    playlistIds: ['party-dj-hits', 'shadi-sangeet-playlist', 'saloon-playlist'],
     plays: 1980000,
   },
   {
@@ -1622,7 +1540,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: '9pufY7HLJTU',
     externalUrl: 'https://youtu.be/9pufY7HLJTU',
     attribution: 'Official YouTube Channel: DJ Dhamaka India',
-    playlistIds: ['dj-love-mashups', 'workout-motivation'],
+    playlistIds: ['party-dj-hits', 'workout-motivation'],
     plays: 2210000,
   },
   {
@@ -1646,7 +1564,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: '9FIa81j-nJM',
     externalUrl: 'https://youtu.be/9FIa81j-nJM',
     attribution: 'Official YouTube Channel: DJ Sophie',
-    playlistIds: ['dj-love-mashups', 'top-50-hindi'],
+    playlistIds: ['party-dj-hits', 'top-50-hindi'],
     plays: 1840000,
   },
   {
@@ -1670,7 +1588,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'efdx68lDKBw',
     externalUrl: 'https://youtu.be/efdx68lDKBw',
     attribution: 'Official YouTube Channel: Dj Shiv Chauhan',
-    playlistIds: ['dj-love-mashups', 'punjabi-party-hits'],
+    playlistIds: ['party-dj-hits', 'sab-chalega'],
     plays: 2640000,
   },
   {
@@ -1694,7 +1612,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: '6GqioLtrask',
     externalUrl: 'https://youtu.be/6GqioLtrask',
     attribution: 'Official YouTube Channel: DJ RAV UK',
-    playlistIds: ['dj-love-mashups', 'saloon-playlist', 'workout-motivation'],
+    playlistIds: ['party-dj-hits', 'saloon-playlist', 'workout-motivation'],
     plays: 2110000,
   },
   {
@@ -1718,7 +1636,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'gdjck610nO8',
     externalUrl: 'https://youtu.be/gdjck610nO8',
     attribution: 'Official YouTube Channel: DJ RAV UK',
-    playlistIds: ['dj-love-mashups', 'punjabi-party-hits'],
+    playlistIds: ['party-dj-hits'],
     plays: 1750000,
   },
   // Evening Daru Playlist — Jagjit Singh Mashups & Sufi Songs (YouTube)
@@ -1743,7 +1661,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'bgkFdhct3QU',
     externalUrl: 'https://youtu.be/bgkFdhct3QU',
     attribution: 'Official YouTube Channel: Reach Music',
-    playlistIds: ['evening-daru-playlist', 'evergreen-bollywood', 'dj-love-mashups'],
+    playlistIds: ['evening-daru-playlist', '90s-hindi-classics', 'party-dj-hits'],
     plays: 3180000,
   },
   {
@@ -1767,7 +1685,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: '5XXqDoYlc6A',
     externalUrl: 'https://youtu.be/5XXqDoYlc6A',
     attribution: 'Official YouTube Channel: Saregama Ghazal',
-    playlistIds: ['evening-daru-playlist', 'evergreen-bollywood'],
+    playlistIds: ['evening-daru-playlist', '90s-hindi-classics'],
     plays: 4920000,
   },
   {
@@ -1791,7 +1709,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'Sax1s_jmRko',
     externalUrl: 'https://youtu.be/Sax1s_jmRko',
     attribution: 'Official YouTube Channel: Saregama Ghazal',
-    playlistIds: ['evening-daru-playlist', 'evergreen-bollywood'],
+    playlistIds: ['evening-daru-playlist', '90s-hindi-classics'],
     plays: 3640000,
   },
   {
@@ -1839,7 +1757,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'axs1mSyliDU',
     externalUrl: 'https://youtu.be/axs1mSyliDU',
     attribution: 'Official YouTube Channel: UtkarshSharmaMusic',
-    playlistIds: ['evening-daru-playlist', 'dj-love-mashups'],
+    playlistIds: ['evening-daru-playlist', 'party-dj-hits'],
     plays: 4120000,
   },
   {
@@ -1863,7 +1781,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: '4ry4dhiMeKo',
     externalUrl: 'https://youtu.be/4ry4dhiMeKo',
     attribution: 'Official YouTube Channel: Noctra',
-    playlistIds: ['evening-daru-playlist', 'bollywood-romantic-hits', 'dj-love-mashups'],
+    playlistIds: ['evening-daru-playlist', 'top-50-hindi', 'party-dj-hits'],
     plays: 2350000,
   },
   {
@@ -1887,7 +1805,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'RlyVCMHCuqc',
     externalUrl: 'https://youtu.be/RlyVCMHCuqc',
     attribution: 'Official YouTube Channel: Aures Music Station',
-    playlistIds: ['evening-daru-playlist', 'traveling-vibes'],
+    playlistIds: ['evening-daru-playlist', 'bus-driver-playlist'],
     plays: 3490000,
   },
   // Famous South Indian Language Hits (Tamil, Telugu, Malayalam, Kannada)
@@ -1912,7 +1830,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'x6Q7c9RyMzk',
     externalUrl: 'https://youtu.be/x6Q7c9RyMzk',
     attribution: 'Official YouTube Channel: Wunderbar Films',
-    playlistIds: ['south-hits', 'workout-motivation'],
+    playlistIds: ['south-hits', 'workout-motivation', 'sab-chalega'],
     plays: 15800000,
   },
   {
@@ -1960,7 +1878,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'YR12Z8f1Dh8',
     externalUrl: 'https://youtu.be/YR12Z8f1Dh8',
     attribution: 'Official YouTube Channel: Sony Music South',
-    playlistIds: ['south-hits', 'traveling-vibes'],
+    playlistIds: ['south-hits', 'bus-driver-playlist'],
     plays: 9600000,
   },
   {
@@ -2008,7 +1926,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: '79IEesucPo8',
     externalUrl: 'https://youtu.be/79IEesucPo8',
     attribution: 'Official YouTube Channel: T-Series Telugu',
-    playlistIds: ['south-hits', 'workout-motivation'],
+    playlistIds: ['south-hits', 'workout-motivation', 'sab-chalega'],
     plays: 14200000,
   },
   {
@@ -2032,7 +1950,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'rOirJKJoE0o',
     externalUrl: 'https://youtu.be/rOirJKJoE0o',
     attribution: 'Official YouTube Channel: Aditya Music',
-    playlistIds: ['south-hits', 'saloon-playlist', 'bollywood-romantic-hits'],
+    playlistIds: ['south-hits', 'saloon-playlist', 'top-50-hindi'],
     plays: 10900000,
   },
   {
@@ -2056,7 +1974,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'txHO7PLGE3o',
     externalUrl: 'https://youtu.be/txHO7PLGE3o',
     attribution: 'Official YouTube Channel: Aditya Music',
-    playlistIds: ['south-hits', 'traveling-vibes'],
+    playlistIds: ['south-hits', 'bus-driver-playlist'],
     plays: 9850000,
   },
   {
@@ -2080,7 +1998,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'FXiaIH49oAU',
     externalUrl: 'https://youtu.be/FXiaIH49oAU',
     attribution: 'Official YouTube Channel: Sony Music Malayalam',
-    playlistIds: ['south-hits', 'traveling-vibes'],
+    playlistIds: ['south-hits', 'bus-driver-playlist'],
     plays: 6750000,
   },
   {
@@ -2152,7 +2070,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'ebz20FHrT44',
     externalUrl: 'https://youtu.be/ebz20FHrT44',
     attribution: 'Official YouTube Channel: Paramvah Music',
-    playlistIds: ['south-hits', 'traveling-vibes'],
+    playlistIds: ['south-hits', 'bus-driver-playlist'],
     plays: 4650000,
   },
   // Famous Nepali Songs
@@ -2177,7 +2095,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'VwIWfvW3SD8',
     externalUrl: 'https://youtu.be/VwIWfvW3SD8',
     attribution: 'Official YouTube Channel: HighlightsNepal',
-    playlistIds: ['nepali-hits', 'workout-motivation'],
+    playlistIds: ['nepali-northeast-hits', 'workout-motivation', 'sab-chalega'],
     plays: 21500000,
   },
   {
@@ -2201,7 +2119,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'BFZCUD7qL24',
     externalUrl: 'https://youtu.be/BFZCUD7qL24',
     attribution: 'Official YouTube Channel: Kendra Motion Pictures',
-    playlistIds: ['nepali-hits', 'traveling-vibes'],
+    playlistIds: ['nepali-northeast-hits', 'bus-driver-playlist'],
     plays: 14800000,
   },
   {
@@ -2225,7 +2143,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'GrlAInfP990',
     externalUrl: 'https://youtu.be/GrlAInfP990',
     attribution: 'Official YouTube Channel: Sajjan',
-    playlistIds: ['nepali-hits', 'traveling-vibes', 'evening-daru-playlist'],
+    playlistIds: ['nepali-northeast-hits', 'bus-driver-playlist', 'evening-daru-playlist'],
     plays: 11200000,
   },
   {
@@ -2249,7 +2167,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'Ogr6ygCwRwc',
     externalUrl: 'https://youtu.be/Ogr6ygCwRwc',
     attribution: 'Official YouTube Channel: Sajjan',
-    playlistIds: ['nepali-hits', 'traveling-vibes'],
+    playlistIds: ['nepali-northeast-hits', 'bus-driver-playlist'],
     plays: 9800000,
   },
   {
@@ -2273,7 +2191,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: '7SaM24Cjzj0',
     externalUrl: 'https://youtu.be/7SaM24Cjzj0',
     attribution: 'Official YouTube Channel: Channel Arbitrary',
-    playlistIds: ['nepali-hits', 'bollywood-romantic-hits'],
+    playlistIds: ['nepali-northeast-hits', 'top-50-hindi'],
     plays: 7400000,
   },
   {
@@ -2297,7 +2215,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: '4R7BxxuGmmE',
     externalUrl: 'https://youtu.be/4R7BxxuGmmE',
     attribution: 'Official YouTube Channel: GH Entertainment Nepal',
-    playlistIds: ['nepali-hits', 'evening-daru-playlist'],
+    playlistIds: ['nepali-northeast-hits', 'evening-daru-playlist'],
     plays: 6900000,
   },
   {
@@ -2321,7 +2239,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'WPzbGpe8HN0',
     externalUrl: 'https://youtu.be/WPzbGpe8HN0',
     attribution: 'Official YouTube Channel: Hanoded',
-    playlistIds: ['nepali-hits', 'traveling-vibes'],
+    playlistIds: ['nepali-northeast-hits', 'bus-driver-playlist'],
     plays: 5200000,
   },
   // Famous Bhojpuri Songs
@@ -2394,7 +2312,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'lkRS2jHDdcU',
     externalUrl: 'https://youtu.be/lkRS2jHDdcU',
     attribution: 'Official YouTube Channel: Saregama Hum Bhojpuri',
-    playlistIds: ['bhojpuri-hits', 'punjabi-party-hits'],
+    playlistIds: ['bhojpuri-hits', 'party-dj-hits'],
     plays: 8900000,
   },
   {
@@ -2515,7 +2433,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'AqUonMjxaog',
     externalUrl: 'https://youtu.be/AqUonMjxaog',
     attribution: 'Official YouTube Topic: Zubeen Garg',
-    playlistIds: ['northeast-hits', 'evening-daru-playlist', 'traveling-vibes'],
+    playlistIds: ['nepali-northeast-hits', 'evening-daru-playlist', 'bus-driver-playlist'],
     plays: 12100000,
   },
   {
@@ -2539,7 +2457,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'AfenGfTcCe0',
     externalUrl: 'https://youtu.be/AfenGfTcCe0',
     attribution: 'Official YouTube Channel: Rhythm Axom',
-    playlistIds: ['northeast-hits', 'traveling-vibes'],
+    playlistIds: ['nepali-northeast-hits', 'bus-driver-playlist'],
     plays: 4800000,
   },
   {
@@ -2563,7 +2481,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: '31o6d3N1dZI',
     externalUrl: 'https://youtu.be/31o6d3N1dZI',
     attribution: 'Official YouTube Channel: East Music India',
-    playlistIds: ['northeast-hits', 'punjabi-party-hits'],
+    playlistIds: ['nepali-northeast-hits', 'party-dj-hits'],
     plays: 6150000,
   },
   {
@@ -2587,7 +2505,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'exs1etqsPv4',
     externalUrl: 'https://youtu.be/exs1etqsPv4',
     attribution: 'Official YouTube Channel: Pushparani Huidrom',
-    playlistIds: ['northeast-hits', 'traveling-vibes'],
+    playlistIds: ['nepali-northeast-hits', 'bus-driver-playlist'],
     plays: 3900000,
   },
   {
@@ -2611,7 +2529,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'T4ECVRT9eko',
     externalUrl: 'https://youtu.be/T4ECVRT9eko',
     attribution: 'Official YouTube Channel: Tetseo Sisters',
-    playlistIds: ['northeast-hits', 'traveling-vibes'],
+    playlistIds: ['nepali-northeast-hits', 'bus-driver-playlist'],
     plays: 2450000,
   },
   {
@@ -2635,7 +2553,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'pLJ4FosvNxY',
     externalUrl: 'https://youtu.be/pLJ4FosvNxY',
     attribution: 'Official YouTube Channel: Mami Varte',
-    playlistIds: ['northeast-hits', 'evening-daru-playlist'],
+    playlistIds: ['nepali-northeast-hits', 'evening-daru-playlist'],
     plays: 3100000,
   },
   {
@@ -2659,7 +2577,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'Gis7140hR5Q',
     externalUrl: 'https://youtu.be/Gis7140hR5Q',
     attribution: 'Official YouTube Channel: Layaa Entertainment Official',
-    playlistIds: ['northeast-hits', 'traveling-vibes'],
+    playlistIds: ['nepali-northeast-hits', 'bus-driver-playlist'],
     plays: 2150000,
   },
   {
@@ -2683,7 +2601,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: '3yQD0UN3jP8',
     externalUrl: 'https://youtu.be/3yQD0UN3jP8',
     attribution: 'Official YouTube Channel: RB Film Productions',
-    playlistIds: ['northeast-hits'],
+    playlistIds: ['nepali-northeast-hits'],
     plays: 2800000,
   },
   // Top Hindi Songs — Recent Chartbusters & Trending Indie
@@ -2708,7 +2626,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'hxMNYkLN7tI',
     externalUrl: 'https://youtu.be/hxMNYkLN7tI',
     attribution: 'Official YouTube Channel: Saregama Music',
-    playlistIds: ['top-50-hindi', 'shadi-sangeet-playlist', 'saloon-playlist', 'dj-love-mashups'],
+    playlistIds: ['top-50-hindi', 'shadi-sangeet-playlist', 'saloon-playlist', 'party-dj-hits'],
     plays: 28500000,
   },
   {
@@ -2756,7 +2674,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'uTuchIYZdbM',
     externalUrl: 'https://youtu.be/uTuchIYZdbM',
     attribution: 'Official YouTube Channel: Saregama Music',
-    playlistIds: ['top-50-hindi', 'shadi-sangeet-playlist', 'punjabi-party-hits', 'workout-motivation'],
+    playlistIds: ['top-50-hindi', 'shadi-sangeet-playlist', 'party-dj-hits', 'workout-motivation'],
     plays: 22300000,
   },
   {
@@ -2780,7 +2698,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'k3g_WjLCsXM',
     externalUrl: 'https://youtu.be/k3g_WjLCsXM',
     attribution: 'Official YouTube Channel: T-Series',
-    playlistIds: ['top-50-hindi', '2am-playlist', 'bollywood-romantic-hits', 'traveling-vibes'],
+    playlistIds: ['top-50-hindi', '2am-playlist', 'bus-driver-playlist'],
     plays: 19600000,
   },
   {
@@ -2804,7 +2722,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'HrnrqYxYrbk',
     externalUrl: 'https://youtu.be/HrnrqYxYrbk',
     attribution: 'Official YouTube Channel: T-Series',
-    playlistIds: ['top-50-hindi', '2am-playlist', 'bollywood-romantic-hits'],
+    playlistIds: ['top-50-hindi', '2am-playlist'],
     plays: 17400000,
   },
   {
@@ -2828,7 +2746,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'iAIBF2ngbWY',
     externalUrl: 'https://youtu.be/iAIBF2ngbWY',
     attribution: 'Official YouTube Channel: T-Series',
-    playlistIds: ['top-50-hindi', 'evening-daru-playlist', 'bollywood-romantic-hits'],
+    playlistIds: ['top-50-hindi', 'evening-daru-playlist'],
     plays: 18900000,
   },
   {
@@ -2852,7 +2770,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'gJLVTKhTnog',
     externalUrl: 'https://youtu.be/gJLVTKhTnog',
     attribution: 'Official YouTube Channel: Anuv Jain',
-    playlistIds: ['top-50-hindi', 'traveling-vibes', 'evening-daru-playlist'],
+    playlistIds: ['top-50-hindi', 'bus-driver-playlist', 'evening-daru-playlist'],
     plays: 16200000,
   },
   {
@@ -2876,7 +2794,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'lBvbNxiVmZA',
     externalUrl: 'https://youtu.be/lBvbNxiVmZA',
     attribution: 'Official YouTube Channel: T-Series',
-    playlistIds: ['top-50-hindi', 'bollywood-romantic-hits'],
+    playlistIds: ['top-50-hindi'],
     plays: 14700000,
   },
   {
@@ -2924,7 +2842,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'Etkd-07gnxM',
     externalUrl: 'https://youtu.be/Etkd-07gnxM',
     attribution: 'Official YouTube Channel: T-Series',
-    playlistIds: ['top-50-hindi', '2am-playlist', 'bollywood-romantic-hits', 'traveling-vibes'],
+    playlistIds: ['top-50-hindi', '2am-playlist', 'bus-driver-playlist'],
     plays: 16800000,
   },
   {
@@ -2948,7 +2866,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'GvXDq-P1NB8',
     externalUrl: 'https://youtu.be/GvXDq-P1NB8',
     attribution: 'Official YouTube Channel: T-Series',
-    playlistIds: ['top-50-hindi', 'saloon-playlist', 'traveling-vibes'],
+    playlistIds: ['top-50-hindi', 'saloon-playlist', 'bus-driver-playlist'],
     plays: 14900000,
   },
   {
@@ -2972,7 +2890,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'VAdGW7QDJiU',
     externalUrl: 'https://youtu.be/VAdGW7QDJiU',
     attribution: 'Official YouTube Channel: T-Series',
-    playlistIds: ['top-50-hindi', '2am-playlist', 'bollywood-romantic-hits', 'saloon-playlist'],
+    playlistIds: ['top-50-hindi', '2am-playlist', 'saloon-playlist'],
     plays: 21400000,
   },
   {
@@ -2996,7 +2914,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'RLzC55ai0eo',
     externalUrl: 'https://youtu.be/RLzC55ai0eo',
     attribution: 'Official YouTube Channel: Jasleen Royal',
-    playlistIds: ['top-50-hindi', '2am-playlist', 'bollywood-romantic-hits', 'traveling-vibes'],
+    playlistIds: ['top-50-hindi', '2am-playlist', 'bus-driver-playlist'],
     plays: 22900000,
   },
   // 2 AM Playlist — Arijit Singh Songs & Late-Night Mashups
@@ -3021,7 +2939,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'IJq0yyWug1k',
     externalUrl: 'https://youtu.be/IJq0yyWug1k',
     attribution: 'Official YouTube Channel: T-Series',
-    playlistIds: ['2am-playlist', 'bollywood-romantic-hits', 'top-50-hindi'],
+    playlistIds: ['2am-playlist', 'top-50-hindi'],
     plays: 34200000,
   },
   {
@@ -3045,7 +2963,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: '284Ov7ysmfA',
     externalUrl: 'https://youtu.be/284Ov7ysmfA',
     attribution: 'Official YouTube Channel: Sony Music India',
-    playlistIds: ['2am-playlist', 'bollywood-romantic-hits', 'evening-daru-playlist'],
+    playlistIds: ['2am-playlist', 'top-50-hindi', 'evening-daru-playlist'],
     plays: 29800000,
   },
   {
@@ -3069,7 +2987,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'sK7riqg2mr4',
     externalUrl: 'https://youtu.be/sK7riqg2mr4',
     attribution: 'Official YouTube Channel: T-Series',
-    playlistIds: ['2am-playlist', 'bollywood-romantic-hits', 'evening-daru-playlist'],
+    playlistIds: ['2am-playlist', 'top-50-hindi', 'evening-daru-playlist'],
     plays: 26500000,
   },
   {
@@ -3093,7 +3011,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'u2NAuswnTKs',
     externalUrl: 'https://youtu.be/u2NAuswnTKs',
     attribution: 'Official YouTube Channel: Zee Music Company',
-    playlistIds: ['2am-playlist', 'bollywood-romantic-hits', 'traveling-vibes'],
+    playlistIds: ['2am-playlist', 'top-50-hindi', 'bus-driver-playlist'],
     plays: 25400000,
   },
   {
@@ -3117,7 +3035,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'BddP6PYo2gs',
     externalUrl: 'https://youtu.be/BddP6PYo2gs',
     attribution: 'Official YouTube Channel: Sony Music India',
-    playlistIds: ['2am-playlist', 'bollywood-romantic-hits', 'top-50-hindi'],
+    playlistIds: ['2am-playlist', 'top-50-hindi'],
     plays: 31800000,
   },
   {
@@ -3141,7 +3059,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'DMRRC0rwO_I',
     externalUrl: 'https://youtu.be/DMRRC0rwO_I',
     attribution: 'Official YouTube Channel: T-Series',
-    playlistIds: ['2am-playlist', 'bollywood-romantic-hits'],
+    playlistIds: ['2am-playlist', 'top-50-hindi'],
     plays: 23700000,
   },
   {
@@ -3165,7 +3083,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'U5wnnQ7X3qw',
     externalUrl: 'https://youtu.be/U5wnnQ7X3qw',
     attribution: 'Official YouTube Channel: T-Series',
-    playlistIds: ['2am-playlist', 'bollywood-romantic-hits', 'evening-daru-playlist'],
+    playlistIds: ['2am-playlist', 'top-50-hindi', 'evening-daru-playlist'],
     plays: 24900000,
   },
   {
@@ -3189,7 +3107,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'Oa4rNXtYE5Q',
     externalUrl: 'https://youtu.be/Oa4rNXtYE5Q',
     attribution: 'Official YouTube Channel: LUFI STUDIO OFFICIAL',
-    playlistIds: ['2am-playlist', 'dj-love-mashups', 'evening-daru-playlist'],
+    playlistIds: ['2am-playlist', 'party-dj-hits', 'evening-daru-playlist'],
     plays: 5400000,
   },
   {
@@ -3213,7 +3131,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'SIzQ0rfptvs',
     externalUrl: 'https://youtu.be/SIzQ0rfptvs',
     attribution: 'Official YouTube Channel: MRT Hub',
-    playlistIds: ['2am-playlist', 'dj-love-mashups'],
+    playlistIds: ['2am-playlist', 'party-dj-hits'],
     plays: 4200000,
   },
   {
@@ -3237,7 +3155,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'fzXV2_vm-6g',
     externalUrl: 'https://youtu.be/fzXV2_vm-6g',
     attribution: 'Official YouTube Channel: Jay Guldekar',
-    playlistIds: ['2am-playlist', 'dj-love-mashups'],
+    playlistIds: ['2am-playlist', 'party-dj-hits'],
     plays: 7100000,
   },
   {
@@ -3261,7 +3179,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'xg2bzwuJl68',
     externalUrl: 'https://youtu.be/xg2bzwuJl68',
     attribution: 'Official YouTube Channel: Tattvaa',
-    playlistIds: ['2am-playlist', 'dj-love-mashups'],
+    playlistIds: ['2am-playlist', 'party-dj-hits'],
     plays: 6300000,
   },
   {
@@ -3285,7 +3203,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'vvHvNWy6FxQ',
     externalUrl: 'https://youtu.be/vvHvNWy6FxQ',
     attribution: 'Official YouTube Channel: Amit Vedwal',
-    playlistIds: ['2am-playlist', 'dj-love-mashups', 'bollywood-romantic-hits'],
+    playlistIds: ['2am-playlist', 'party-dj-hits', 'top-50-hindi'],
     plays: 5800000,
   },
   {
@@ -3333,7 +3251,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: '00DvaPstcpo',
     externalUrl: 'https://youtu.be/00DvaPstcpo',
     attribution: 'Official YouTube Channel: Bollywood Chartbusters',
-    playlistIds: ['2am-playlist', 'traveling-vibes', 'dj-love-mashups'],
+    playlistIds: ['2am-playlist', 'bus-driver-playlist', 'party-dj-hits'],
     plays: 8200000,
   },
   // Shadi and Sangeet Playlist — Wedding, Sangeet & DJ Mashups
@@ -3358,7 +3276,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'k4yXQkG2s1E',
     externalUrl: 'https://youtu.be/k4yXQkG2s1E',
     attribution: 'Official YouTube Channel: Zee Music Company',
-    playlistIds: ['shadi-sangeet-playlist', 'punjabi-party-hits', 'workout-motivation'],
+    playlistIds: ['shadi-sangeet-playlist', 'party-dj-hits', 'workout-motivation'],
     plays: 36500000,
   },
   {
@@ -3382,7 +3300,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'OqlQ5eVxbX0',
     externalUrl: 'https://youtu.be/OqlQ5eVxbX0',
     attribution: 'Official YouTube Channel: T-Series',
-    playlistIds: ['shadi-sangeet-playlist', 'punjabi-party-hits'],
+    playlistIds: ['shadi-sangeet-playlist', 'party-dj-hits'],
     plays: 28400000,
   },
   {
@@ -3406,7 +3324,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'O6t_fEpfN54',
     externalUrl: 'https://youtu.be/O6t_fEpfN54',
     attribution: 'Official YouTube Channel: Junglee Pictures',
-    playlistIds: ['shadi-sangeet-playlist', 'punjabi-party-hits'],
+    playlistIds: ['shadi-sangeet-playlist', 'party-dj-hits'],
     plays: 24900000,
   },
   {
@@ -3430,7 +3348,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'N0uDmkTV08Y',
     externalUrl: 'https://youtu.be/N0uDmkTV08Y',
     attribution: 'Official YouTube Channel: T-Series',
-    playlistIds: ['shadi-sangeet-playlist', 'punjabi-party-hits', 'workout-motivation'],
+    playlistIds: ['shadi-sangeet-playlist', 'party-dj-hits', 'workout-motivation'],
     plays: 31200000,
   },
   {
@@ -3454,7 +3372,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'Wd2B8OAotU8',
     externalUrl: 'https://youtu.be/Wd2B8OAotU8',
     attribution: 'Official YouTube Channel: YRF',
-    playlistIds: ['shadi-sangeet-playlist', 'dj-love-mashups'],
+    playlistIds: ['shadi-sangeet-playlist', 'party-dj-hits'],
     plays: 27600000,
   },
   {
@@ -3478,7 +3396,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'i7CFfLVwwuQ',
     externalUrl: 'https://youtu.be/i7CFfLVwwuQ',
     attribution: 'Official YouTube Channel: T-Series',
-    playlistIds: ['shadi-sangeet-playlist', 'bollywood-romantic-hits'],
+    playlistIds: ['shadi-sangeet-playlist', 'top-50-hindi'],
     plays: 22100000,
   },
   {
@@ -3550,7 +3468,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'siq-ZdVY2x4',
     externalUrl: 'https://youtu.be/siq-ZdVY2x4',
     attribution: 'Official YouTube Channel: VDj Royal',
-    playlistIds: ['shadi-sangeet-playlist', 'dj-love-mashups'],
+    playlistIds: ['shadi-sangeet-playlist', 'party-dj-hits'],
     plays: 6400000,
   },
   {
@@ -3574,7 +3492,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'K6O45cTbBiA',
     externalUrl: 'https://youtu.be/K6O45cTbBiA',
     attribution: 'Official YouTube Channel: Sony Music India',
-    playlistIds: ['shadi-sangeet-playlist', 'dj-love-mashups'],
+    playlistIds: ['shadi-sangeet-playlist', 'party-dj-hits'],
     plays: 5100000,
   },
   {
@@ -3598,7 +3516,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: '29BwDhgBbUs',
     externalUrl: 'https://youtu.be/29BwDhgBbUs',
     attribution: 'Official YouTube Channel: Amit Vedwal',
-    playlistIds: ['shadi-sangeet-playlist', 'dj-love-mashups'],
+    playlistIds: ['shadi-sangeet-playlist', 'party-dj-hits'],
     plays: 4700000,
   },
   {
@@ -3622,7 +3540,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'Pn3ehi8yelg',
     externalUrl: 'https://youtu.be/Pn3ehi8yelg',
     attribution: 'Official YouTube Channel: DJ AB',
-    playlistIds: ['shadi-sangeet-playlist', 'dj-love-mashups'],
+    playlistIds: ['shadi-sangeet-playlist', 'party-dj-hits'],
     plays: 3800000,
   },
   {
@@ -3646,7 +3564,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'ImdmtbPIam4',
     externalUrl: 'https://youtu.be/ImdmtbPIam4',
     attribution: 'Official YouTube Channel: VDJ Ayush',
-    playlistIds: ['shadi-sangeet-playlist', 'dj-love-mashups'],
+    playlistIds: ['shadi-sangeet-playlist', 'party-dj-hits'],
     plays: 4300000,
   },
   {
@@ -3670,7 +3588,7 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: '9jzULYIwAjc',
     externalUrl: 'https://youtu.be/9jzULYIwAjc',
     attribution: 'Official YouTube Channel: Akanksha Bhandari',
-    playlistIds: ['shadi-sangeet-playlist', 'bollywood-romantic-hits'],
+    playlistIds: ['shadi-sangeet-playlist', 'top-50-hindi'],
     plays: 3600000,
   },
   {
@@ -3694,7 +3612,292 @@ export const INITIAL_TRACKS: Track[] = [
     embedId: 'OY7xMXf2KHA',
     externalUrl: 'https://youtu.be/OY7xMXf2KHA',
     attribution: 'Official YouTube Channel: VDj Royal',
-    playlistIds: ['shadi-sangeet-playlist', 'dj-love-mashups'],
+    playlistIds: ['shadi-sangeet-playlist', 'party-dj-hits', 'sab-chalega'],
     plays: 4900000,
   },
+  // Bhakti, Bhajan & Aarti Tracks
+  {
+    id: 'gg-bhakti-01',
+    title: 'Shiva Rudra Gayatri Mantra (Deep Meditation)',
+    artist: 'Saimon',
+    album: 'Sacred Mantra Sessions',
+    genre: 'Bhakti & Mantra',
+    language: 'Sanskrit / Hindi',
+    durationSec: 679,
+    bpm: 64,
+    year: 2025,
+    coverUrl: COVER_ASSETS.bhaktiAarti,
+    providerId: 'audius-open',
+    providerName: 'Audius Open Streaming',
+    licenseType: 'Creative Commons (CC-BY)',
+    licenseSummary: 'Full-length devotional mantra meditation track streamed via Audius.',
+    playbackRights: 'full-stream',
+    streamUrl: '/api/audius/stream/KpG1Vl9',
+    externalUrl: 'https://audius.co',
+    attribution: 'Saimon via Audius Open Streaming',
+    playlistIds: ['bhakti-bhajan-aarti', 'sab-chalega'],
+    audioProfile: { bpm: 64, rootHz: 196.0, scale: 'yaman', groove: 'lofi-ambient', intensity: 0.45 },
+    plays: 1240000,
+  },
+  {
+    id: 'yt-AETFvQonfV8',
+    title: 'Shree Hanuman Chalisa Original Video | Gulshan Kumar & Hariharan',
+    artist: 'Hariharan · Gulshan Kumar',
+    album: 'Shree Hanuman Chalisa',
+    genre: 'Bhakti & Aarti',
+    language: 'Sanskrit / Hindi',
+    durationSec: 0,
+    bpm: 76,
+    year: 2011,
+    coverUrl: 'https://i.ytimg.com/vi/AETFvQonfV8/hqdefault.jpg',
+    providerId: 'youtube-data',
+    providerName: 'YouTube Official Embed',
+    licenseType: 'Metadata & Official Embed',
+    licenseSummary:
+      'Plays directly via the official YouTube embedded player, respecting YouTube playback policies.',
+    playbackRights: 'embed-only',
+    streamUrl: '',
+    embedId: 'AETFvQonfV8',
+    externalUrl: 'https://youtu.be/AETFvQonfV8',
+    attribution: 'Official YouTube Channel: T-Series Bhakti Sagar',
+    playlistIds: ['bhakti-bhajan-aarti', 'sab-chalega'],
+    plays: 42000000,
+  },
+  {
+    id: 'yt-KRhcTPKdmrk',
+    title: 'Shiv Tandav Stotram',
+    artist: 'Shankar Mahadevan',
+    album: 'Sacred Shiva Chants',
+    genre: 'Bhakti & Stotram',
+    language: 'Sanskrit / Hindi',
+    durationSec: 0,
+    bpm: 92,
+    year: 2018,
+    coverUrl: 'https://i.ytimg.com/vi/KRhcTPKdmrk/hqdefault.jpg',
+    providerId: 'youtube-data',
+    providerName: 'YouTube Official Embed',
+    licenseType: 'Metadata & Official Embed',
+    licenseSummary:
+      'Plays directly via the official YouTube embedded player, respecting YouTube playback policies.',
+    playbackRights: 'embed-only',
+    streamUrl: '',
+    embedId: 'KRhcTPKdmrk',
+    externalUrl: 'https://youtu.be/KRhcTPKdmrk',
+    attribution: 'Official YouTube Channel: Various Artists - Topic',
+    playlistIds: ['bhakti-bhajan-aarti'],
+    plays: 18500000,
+  },
+  {
+    id: 'yt-v8Hasz1MlHo',
+    title: 'Aarti Kunj Bihari Ki | Krishna Aarti',
+    artist: 'Anuradha Paudwal',
+    album: 'Krishna Bhajan & Aarti',
+    genre: 'Bhakti & Aarti',
+    language: 'Hindi',
+    durationSec: 0,
+    bpm: 84,
+    year: 2020,
+    coverUrl: 'https://i.ytimg.com/vi/v8Hasz1MlHo/hqdefault.jpg',
+    providerId: 'youtube-data',
+    providerName: 'YouTube Official Embed',
+    licenseType: 'Metadata & Official Embed',
+    licenseSummary:
+      'Plays directly via the official YouTube embedded player, respecting YouTube playback policies.',
+    playbackRights: 'embed-only',
+    streamUrl: '',
+    embedId: 'v8Hasz1MlHo',
+    externalUrl: 'https://youtu.be/v8Hasz1MlHo',
+    attribution: 'Official YouTube Channel: T-Series Bhakti Sagar',
+    playlistIds: ['bhakti-bhajan-aarti'],
+    plays: 14300000,
+  },
+  {
+    id: 'yt-zBeJ_I_k_d8',
+    title: 'Achyutam Keshavam Krishna Damodaram',
+    artist: 'Prakash Dey',
+    album: 'Morning Krishna Bhajan',
+    genre: 'Bhakti & Bhajan',
+    language: 'Sanskrit / Hindi',
+    durationSec: 0,
+    bpm: 80,
+    year: 2021,
+    coverUrl: 'https://i.ytimg.com/vi/zBeJ_I_k_d8/hqdefault.jpg',
+    providerId: 'youtube-data',
+    providerName: 'YouTube Official Embed',
+    licenseType: 'Metadata & Official Embed',
+    licenseSummary:
+      'Plays directly via the official YouTube embedded player, respecting YouTube playback policies.',
+    playbackRights: 'embed-only',
+    streamUrl: '',
+    embedId: 'zBeJ_I_k_d8',
+    externalUrl: 'https://youtu.be/zBeJ_I_k_d8',
+    attribution: 'Official YouTube Channel: Prakash Dey - Topic',
+    playlistIds: ['bhakti-bhajan-aarti'],
+    plays: 7600000,
+  },
+  {
+    id: 'yt-vCtWWUwzNiE',
+    title: 'Shree Hanuman Chalisa (Lo-Fi Beats)',
+    artist: 'Gulshan Kumar · T-Series Bhakti Sagar',
+    album: 'Devotional Lo-Fi Sessions',
+    genre: 'Bhakti Lo-Fi',
+    language: 'Hindi',
+    durationSec: 0,
+    bpm: 78,
+    year: 2023,
+    coverUrl: 'https://i.ytimg.com/vi/vCtWWUwzNiE/hqdefault.jpg',
+    providerId: 'youtube-data',
+    providerName: 'YouTube Official Embed',
+    licenseType: 'Metadata & Official Embed',
+    licenseSummary:
+      'Plays directly via the official YouTube embedded player, respecting YouTube playback policies.',
+    playbackRights: 'embed-only',
+    streamUrl: '',
+    embedId: 'vCtWWUwzNiE',
+    externalUrl: 'https://youtu.be/vCtWWUwzNiE',
+    attribution: 'Official YouTube Channel: T-Series Bhakti Sagar',
+    playlistIds: ['bhakti-bhajan-aarti', 'sab-chalega'],
+    plays: 9800000,
+  },
 ];
+
+const BAJAO_CATEGORY_TO_PLAYLIST: Record<string, string> = {
+  baraat: 'shadi-sangeet-playlist',
+  gym: 'workout-motivation',
+  club: 'party-dj-hits',
+  daru: 'evening-daru-playlist',
+  safarnama: 'bus-driver-playlist',
+  '90s': '90s-hindi-classics',
+  retro: '90s-hindi-classics',
+  '3am': '2am-playlist',
+  bhakti: 'bhakti-bhajan-aarti',
+};
+
+const BAJAO_CATEGORY_META: Record<string, { album: string; genre: string; year: number }> = {
+  baraat: { album: 'Baraat & Sangeet', genre: 'Wedding & Sangeet', year: 2024 },
+  gym: { album: 'Gym Beast Mode', genre: 'Workout Energy', year: 2024 },
+  club: { album: 'Club Night', genre: 'Party & DJ Mix', year: 2024 },
+  daru: { album: 'Daru Party', genre: 'After Hours Vibe', year: 2023 },
+  safarnama: { album: 'Safarnama Highway Mix', genre: 'Road Trip', year: 2022 },
+  '90s': { album: '90s Cassette Gold', genre: '90s Classics', year: 1995 },
+  retro: { album: 'Retro Classics', genre: 'Evergreen Retro', year: 1982 },
+  '3am': { album: '3 AM Late Night', genre: 'Late Night Soul', year: 2023 },
+  bhakti: { album: 'Bhakti, Bhajan & Aarti', genre: 'Devotional & Aarti', year: 2020 },
+};
+
+function formatBajaoLanguage(lang: string): string {
+  const key = (lang || 'hindi').toLowerCase();
+  if (key === 'marathi') return 'Marathi';
+  if (key === 'punjabi') return 'Punjabi';
+  if (key === 'english') return 'English';
+  if (key === 'haryanvi') return 'Haryanvi';
+  if (key === 'bhojpuri') return 'Bhojpuri';
+  return 'Hindi';
+}
+
+function mapBajaoPlaylistIds(
+  category: string,
+  also: string[],
+  language: string,
+  banger: number
+): string[] {
+  const ids = new Set<string>();
+  const primary = BAJAO_CATEGORY_TO_PLAYLIST[category];
+  if (primary) ids.add(primary);
+  for (const extra of also) {
+    const mapped = BAJAO_CATEGORY_TO_PLAYLIST[extra];
+    if (mapped) ids.add(mapped);
+  }
+  if (category !== 'bhakti') {
+    ids.add('sab-chalega');
+  }
+  if (
+    language === 'hindi' &&
+    banger === 1 &&
+    (category === 'club' || category === 'baraat' || category === '3am')
+  ) {
+    ids.add('top-50-hindi');
+  }
+  return Array.from(ids);
+}
+
+function buildInitialTracks(): Track[] {
+  const tracks: Track[] = BASE_CURATED_TRACKS.map((t) => ({
+    ...t,
+    playlistIds: [...t.playlistIds],
+  }));
+
+  const byEmbedId = new Map<string, Track>();
+  for (const t of tracks) {
+    if (t.embedId) {
+      byEmbedId.set(t.embedId, t);
+    }
+  }
+
+  for (const [
+    songId,
+    title,
+    artist,
+    youtubeIds,
+    durationSec,
+    bpm,
+    rawLang,
+    category,
+    also,
+    banger,
+  ] of BAJAO_SONGS) {
+    if (!youtubeIds || youtubeIds.length === 0) continue;
+    const primaryYtId = youtubeIds[0];
+    const fallbackIds = youtubeIds.slice(1);
+    const playlistIds = mapBajaoPlaylistIds(category, also, rawLang, banger);
+
+    const existing = byEmbedId.get(primaryYtId);
+    if (existing) {
+      existing.playlistIds = Array.from(new Set([...existing.playlistIds, ...playlistIds]));
+      if (fallbackIds.length > 0) {
+        existing.fallbackEmbedIds = Array.from(
+          new Set([...(existing.fallbackEmbedIds || []), ...fallbackIds])
+        );
+      }
+      if (!existing.durationSec && durationSec > 0) {
+        existing.durationSec = durationSec;
+      }
+      continue;
+    }
+
+    const meta = BAJAO_CATEGORY_META[category] || BAJAO_CATEGORY_META.club;
+    const track: Track = {
+      id: `bj-${songId}`,
+      title,
+      artist,
+      album: meta.album,
+      genre: meta.genre,
+      language: formatBajaoLanguage(rawLang),
+      durationSec,
+      bpm: bpm || 112,
+      year: meta.year,
+      coverUrl: `https://i.ytimg.com/vi/${primaryYtId}/hqdefault.jpg`,
+      providerId: 'youtube-data',
+      providerName: 'YouTube Official Embed',
+      licenseType: 'Metadata & Official Embed',
+      licenseSummary:
+        'Plays directly via the official YouTube embedded player, respecting YouTube playback policies.',
+      playbackRights: 'embed-only',
+      streamUrl: '',
+      embedId: primaryYtId,
+      ...(fallbackIds.length > 0 ? { fallbackEmbedIds: fallbackIds } : {}),
+      externalUrl: `https://youtu.be/${primaryYtId}`,
+      attribution: 'Official YouTube Embed · Bajao Curated Catalog',
+      playlistIds,
+      plays: banger ? 3250000 : 1450000,
+    };
+
+    tracks.push(track);
+    byEmbedId.set(primaryYtId, track);
+  }
+
+  return tracks;
+}
+
+export const INITIAL_TRACKS: Track[] = buildInitialTracks();
+

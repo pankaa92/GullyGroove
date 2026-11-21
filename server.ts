@@ -184,50 +184,30 @@ async function startServer() {
   const songRequests: Array<{
     id: string;
     songName: string;
-    youtubeUrl: string;
+    feedback: string;
     targetEmail: string;
     createdAt: string;
   }> = [];
 
-  // Song Request submission endpoint (records request and sends via Resend if configured)
+  // Tune Request & Feedback submission endpoint (records request and sends via Resend if configured)
   app.post('/api/song-requests', async (req, res) => {
-    const body = req.body as { songName?: string; youtubeUrl?: string };
-    const songName = typeof body.songName === 'string' ? body.songName.trim() : '';
-    const youtubeUrl = typeof body.youtubeUrl === 'string' ? body.youtubeUrl.trim() : '';
+    const body = req.body as { songName?: string; feedback?: string };
+    const songName =
+      typeof body.songName === 'string' ? body.songName.trim().slice(0, 200) : '';
+    const feedback =
+      typeof body.feedback === 'string' ? body.feedback.trim().slice(0, 2000) : '';
 
-    if (!songName) {
-      res.status(400).json({ error: 'Song name is required.' });
-      return;
-    }
-
-    let parsedUrl: URL;
-    try {
-      parsedUrl = new URL(youtubeUrl);
-    } catch {
-      res.status(400).json({ error: 'Please enter a valid YouTube link.' });
-      return;
-    }
-
-    if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
-      res.status(400).json({ error: 'YouTube link must start with https:// or http://' });
-      return;
-    }
-
-    const host = parsedUrl.hostname.toLowerCase();
-    const isYouTubeHost =
-      host === 'youtu.be' ||
-      host === 'youtube.com' ||
-      host.endsWith('.youtube.com');
-
-    if (!isYouTubeHost) {
-      res.status(400).json({ error: 'Please enter a valid YouTube URL (youtube.com or youtu.be).' });
+    if (!songName && !feedback) {
+      res
+        .status(400)
+        .json({ error: 'Please enter a song name or share your feedback/comment.' });
       return;
     }
 
     const record = {
       id: `req-${Date.now()}`,
       songName,
-      youtubeUrl,
+      feedback,
       targetEmail: 'iampank3@gmail.com',
       createdAt: new Date().toISOString(),
     };
@@ -248,8 +228,12 @@ async function startServer() {
           body: JSON.stringify({
             from: process.env.RESEND_FROM || 'GullyGroove <onboarding@resend.dev>',
             to: ['iampank3@gmail.com'],
-            subject: `GullyGroove Song Request: ${songName}`,
-            text: `New song request submitted on GullyGroove:\n\nSong Name: ${songName}\nYouTube Link: ${youtubeUrl}\nSubmitted At: ${record.createdAt}`,
+            subject: songName
+              ? `GullyGroove Tune Request: ${songName}`
+              : 'GullyGroove Tune Request & Feedback',
+            text: `New Tune Request / Feedback submitted on GullyGroove:\n\nSong Name: ${
+              songName || '(Not specified)'
+            }\nFeedback / Comment: ${feedback || '(None)'}\nSubmitted At: ${record.createdAt}`,
           }),
         });
         if (emailRes.ok) {

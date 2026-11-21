@@ -1,0 +1,63 @@
+import type { Track } from '../types/music';
+
+export const LANGUAGE_FILTERS = [
+  'All',
+  'Hindi',
+  'Punjabi',
+  'Marathi',
+  'Haryanvi',
+  'Bhojpuri',
+  'South',
+  'Nepali & NE',
+  'Devotional',
+  'English',
+] as const;
+
+export type LanguageFilter = (typeof LANGUAGE_FILTERS)[number];
+
+const SOUTH_TOKENS = ['tamil', 'telugu', 'malayalam', 'kannada', 'south'];
+const NE_NEPALI_TOKENS = [
+  'nepali',
+  'assamese',
+  'manipuri',
+  'nagamese',
+  'chokri',
+  'mizo',
+  'khasi',
+  'bodo',
+];
+const DEVOTIONAL_TOKENS = ['devotional', 'bhakti', 'bhajan', 'aarti', 'mantra', 'sanskrit'];
+
+export function matchesLanguageFilter(track: Track, filter: LanguageFilter): boolean {
+  if (filter === 'All') return true;
+
+  const lang = (track.language || '').toLowerCase();
+  const genre = (track.genre || '').toLowerCase();
+  const playlists = track.playlistIds || [];
+
+  switch (filter) {
+    case 'Hindi':
+      return lang.includes('hindi') || lang.includes('urdu');
+    case 'Punjabi':
+      return lang.includes('punjabi');
+    case 'Marathi':
+      return lang.includes('marathi');
+    case 'Haryanvi':
+      return lang.includes('haryanvi');
+    case 'Bhojpuri':
+      return lang.includes('bhojpuri');
+    case 'South':
+      return SOUTH_TOKENS.some((tok) => lang.includes(tok));
+    case 'Nepali & NE':
+      return NE_NEPALI_TOKENS.some((tok) => lang.includes(tok));
+    case 'Devotional':
+      return (
+        playlists.includes('bhakti-bhajan-aarti') ||
+        DEVOTIONAL_TOKENS.some((tok) => lang.includes(tok) || genre.includes(tok))
+      );
+    case 'English':
+      return lang.includes('english') || lang.includes('instrumental');
+    default:
+      return true;
+  }
+}
