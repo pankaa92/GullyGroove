@@ -264,7 +264,7 @@ export function PlayerBar({
     useState<ConsoleDrawerTab>(null);
   const [consoleDrawerTab, setConsoleDrawerTab] = useState<ConsoleDrawerTab>(null);
   const [audioError, setAudioError] = useState<string | null>(null);
-  const [ytDockMinimized, setYtDockMinimized] = useState(false);
+  const [ytDockMinimized, setYtDockMinimized] = useState(true);
   const [ytBuffering, setYtBuffering] = useState(false);
   const [ytSlotTracks, setYtSlotTracks] = useState<[Track | null, Track | null]>([
     null,
@@ -974,13 +974,6 @@ export function PlayerBar({
     },
     [cancelTransition, getDeck, getHookForTrack, startTransitionInterval]
   );
-
-  // Reset YouTube dock visibility whenever a new YouTube track starts
-  useEffect(() => {
-    if (hasAnyYtDeck && isPlaying) {
-      setYtDockMinimized(false);
-    }
-  }, [currentTrack?.id, hasAnyYtDeck, isPlaying]);
 
   // Unified dual-deck HTML5 <audio> & YouTube handoff synchronization
   useEffect(() => {
@@ -2079,7 +2072,7 @@ export function PlayerBar({
               ? minimizedDrawerTab !== null
                 ? 'fixed z-40 right-2 left-auto w-[212px] bottom-[calc(184px+min(26dvh,200px)+8px)] md:bottom-[184px] md:right-[384px] md:w-[340px] lg:bottom-[94px] lg:right-[410px] lg:w-[372px] ml-auto rounded-2xl bg-[#11111A]/95 backdrop-blur-2xl border border-violet-500/30 shadow-[0_24px_70px_-15px_rgba(15,10,40,0.92)] overflow-hidden transition-all duration-200'
                 : 'fixed left-2 right-2 sm:left-auto sm:right-6 z-40 bottom-[184px] lg:bottom-[94px] sm:w-[372px] xl:w-[404px] ml-auto rounded-2xl bg-[#11111A]/95 backdrop-blur-2xl border border-violet-500/30 shadow-[0_24px_70px_-15px_rgba(15,10,40,0.92)] overflow-hidden transition-all duration-200'
-              : 'pointer-events-none opacity-0 fixed -left-[9999px] top-0 w-px h-px overflow-hidden'
+              : 'pointer-events-none opacity-0 fixed -left-[9999px] top-0 w-[320px] h-[180px] overflow-hidden'
         }
       >
         {/* Mini Header shown only in floating corner mode (when Center Console is minimized) */}
@@ -2266,7 +2259,10 @@ export function PlayerBar({
 
                   <button
                     type="button"
-                    onClick={() => onSetStudioConsoleOpen(false)}
+                    onClick={() => {
+                      setYtDockMinimized(true);
+                      onSetStudioConsoleOpen(false);
+                    }}
                     aria-label="Minimize to bottom player"
                     title="Minimize to bottom player"
                     className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-300 hover:text-white hover:bg-white/[0.07] transition-colors"

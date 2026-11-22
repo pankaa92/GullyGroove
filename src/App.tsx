@@ -765,62 +765,6 @@ export default function App() {
                     </div>
                   </section>
 
-                  {/* Jump Back In — Spotify-Style Horizontal Quick Picks */}
-                  <section className="space-y-3.5">
-                    <div className="flex items-center justify-between">
-                      <h2 className="font-display text-lg sm:text-xl font-bold text-white">
-                        Jump Back In
-                      </h2>
-                      <button
-                        type="button"
-                        onClick={() => setActiveTab('playlists')}
-                        className="text-xs font-semibold text-blue-400 hover:text-blue-300 whitespace-nowrap shrink-0"
-                      >
-                        See all
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5 sm:gap-3">
-                      {playlistsWithLiveCounts.slice(0, 6).map((pl) => (
-                        <div
-                          key={pl.id}
-                          className="group relative flex items-center gap-3 overflow-hidden rounded-xl bg-[#12121B] border border-white/[0.06] pr-3 transition-all duration-200 hover:bg-[#1B1B29] hover:border-violet-500/35"
-                        >
-                          <button
-                            type="button"
-                            onClick={() => openPlaylist(pl.id)}
-                            className="flex items-center gap-3 flex-1 min-w-0 text-left focus-visible:outline-none"
-                          >
-                            <div className="h-14 w-14 sm:h-16 sm:w-16 shrink-0 overflow-hidden bg-[#0D0D14]">
-                              <ArtworkImage
-                                src={pl.coverUrl}
-                                alt={pl.title}
-                                className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                              />
-                            </div>
-                            <div className="min-w-0 py-1.5">
-                              <div className="font-display text-sm font-semibold text-white truncate">
-                                {pl.title}
-                              </div>
-                              <div className="text-[11px] text-slate-400 truncate mt-0.5">
-                                {pl.mood} · {pl.trackCount} tracks
-                              </div>
-                            </div>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => quickPlayPlaylist(pl.id)}
-                            aria-label={`Play ${pl.title}`}
-                            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-violet-600 to-blue-500 text-white shadow-lg shadow-violet-950/60 transition-all duration-200 hover:scale-105 active:scale-95 md:opacity-0 md:group-hover:opacity-100 focus-visible:opacity-100"
-                          >
-                            <Play className="w-4 h-4 fill-current ml-0.5" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </section>
-
                   {/* Recently Played Songs Strip (appears cleanly once user has played music) */}
                   {recentlyPlayed.length > 0 ? (
                     <section className="space-y-3.5">
@@ -1066,23 +1010,6 @@ export default function App() {
                           ? 'Every vibe from Top Hindi Songs, Bhakti & All in One to Shadi Sangeet and Highway Classics.'
                           : `Filtered by ${languageFilter} · ${filteredPlaylists.length} matching playlists`}
                       </p>
-                    </div>
-
-                    <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-[#12121B] border border-white/[0.08] self-start max-w-full overflow-x-auto">
-                      {(['All', 'India', 'Pan-India', 'Global'] as const).map((region) => (
-                        <button
-                          key={region}
-                          type="button"
-                          onClick={() => setRegionFilter(region)}
-                          className={`px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap shrink-0 transition-colors ${
-                            regionFilter === region
-                              ? 'bg-gradient-to-r from-violet-600 to-blue-500 text-white'
-                              : 'text-slate-400 hover:text-white'
-                          }`}
-                        >
-                          {region}
-                        </button>
-                      ))}
                     </div>
                   </div>
 

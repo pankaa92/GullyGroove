@@ -1,7 +1,6 @@
 import { CheckCircle2, Mail, MessageSquare, Send, X } from 'lucide-react';
 import { useState } from 'react';
 import {
-  SONG_REQUEST_EMAIL,
   submitSongRequest,
   type SongRequestResult,
 } from '../services/clientCatalog';
@@ -81,7 +80,7 @@ export function RequestSongModal({ open, onClose }: RequestSongModalProps) {
               Tune Request
             </h2>
             <p className="text-xs text-slate-400">
-              Send a song request, feedback, or comment to {SONG_REQUEST_EMAIL}
+              Send a song request, feedback, or comment to our team
             </p>
           </div>
           <button
@@ -125,10 +124,6 @@ export function RequestSongModal({ open, onClose }: RequestSongModalProps) {
                   </span>
                 </div>
               ) : null}
-              <div>
-                <span className="text-slate-500">Recipient: </span>
-                <span className="text-slate-300">{SONG_REQUEST_EMAIL}</span>
-              </div>
             </div>
 
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2.5 pt-2 border-t border-white/[0.08]">

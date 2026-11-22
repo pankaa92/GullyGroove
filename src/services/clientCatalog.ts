@@ -618,7 +618,7 @@ export async function submitSongRequest(input: {
           return {
             ok: true,
             status: 'sent',
-            message: `Your tune request has been sent to ${SONG_REQUEST_EMAIL}.`,
+            message: 'Your tune request has been sent successfully.',
             mailtoUrl,
           };
         }
@@ -664,7 +664,7 @@ export async function submitSongRequest(input: {
       return {
         ok: true,
         status: 'sent',
-        message: `Your song request has been sent to ${SONG_REQUEST_EMAIL}.`,
+        message: 'Your tune request has been sent successfully.',
         mailtoUrl,
       };
     }
@@ -676,7 +676,7 @@ export async function submitSongRequest(input: {
       return {
         ok: true,
         status: 'activation-required',
-        message: `Request submitted! Check ${SONG_REQUEST_EMAIL} once to confirm the FormSubmit activation link, or click "Open in Email App" below to send right away.`,
+        message: 'Request submitted! You can also click "Open in Email App" below to send right away.',
         mailtoUrl,
       };
     }
@@ -688,8 +688,8 @@ export async function submitSongRequest(input: {
     ok: serverRecorded,
     status: 'fallback-mailto',
     message: serverRecorded
-      ? `Your request was saved on the server. Click "Open in Email App" below to send it directly to ${SONG_REQUEST_EMAIL}.`
-      : `Click "Open in Email App" below to send your song request directly to ${SONG_REQUEST_EMAIL}.`,
+      ? 'Your request has been saved. Click "Open in Email App" below to send it right away.'
+      : 'Click "Open in Email App" below to send your tune request.',
     mailtoUrl,
   };
 }
