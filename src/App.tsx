@@ -14,8 +14,10 @@ import { AddTrackModal } from './components/AddTrackModal';
 import { ArtworkImage } from './components/ArtworkImage';
 import { BrandLogo } from './components/BrandLogo';
 import { MediaVaultView } from './components/MediaVaultView';
+import { OfflineIndicator } from './components/OfflineIndicator';
 import { PlayerBar, type RepeatMode } from './components/PlayerBar';
 import { PlaylistCard } from './components/PlaylistCard';
+import { PWAInstallButton } from './components/PWAInstallButton';
 import { RequestSongModal } from './components/RequestSongModal';
 import { SearchExploreView } from './components/SearchExploreView';
 import { TrackRow } from './components/TrackRow';
@@ -649,15 +651,18 @@ export default function App() {
             </button>
           </nav>
 
-          {/* Zone 3: Single Primary Action */}
-          <button
-            type="button"
-            onClick={() => setRequestModalOpen(true)}
-            className="inline-flex h-9 items-center gap-1.5 px-4 rounded-xl bg-gradient-to-r from-violet-600 to-blue-500 text-xs font-semibold text-white shadow-md shadow-violet-950/50 hover:opacity-95 active:scale-[0.98] transition-all whitespace-nowrap shrink-0"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Tune Request
-          </button>
+          {/* Zone 3: Install App & Tune Request */}
+          <div className="flex items-center gap-2.5 shrink-0">
+            <PWAInstallButton variant="header" />
+            <button
+              type="button"
+              onClick={() => setRequestModalOpen(true)}
+              className="inline-flex h-9 items-center gap-1.5 px-4 rounded-xl bg-gradient-to-r from-violet-600 to-blue-500 text-xs font-semibold text-white shadow-md shadow-violet-950/50 hover:opacity-95 active:scale-[0.98] transition-all whitespace-nowrap shrink-0"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Tune Request
+            </button>
+          </div>
         </header>
 
         {/* Mobile & Tablet Compact Sticky Top Bar (52px) */}
@@ -674,6 +679,7 @@ export default function App() {
           </button>
 
           <div className="flex items-center gap-2 shrink-0">
+            <PWAInstallButton variant="header" />
             <button
               type="button"
               onClick={() => setRequestModalOpen(true)}
@@ -761,9 +767,14 @@ export default function App() {
                         >
                           Browse All {playlistsWithLiveCounts.length} Playlists
                         </button>
+
+                        <PWAInstallButton variant="hero" />
                       </div>
                     </div>
                   </section>
+
+                  {/* iPhone / iPad Safari Home Screen Guide Card (auto-hidden on Android/Desktop/Standalone) */}
+                  <PWAInstallButton variant="ios-card" />
 
                   {/* Recently Played Songs Strip (appears cleanly once user has played music) */}
                   {recentlyPlayed.length > 0 ? (
@@ -1369,6 +1380,8 @@ export default function App() {
         open={requestModalOpen}
         onClose={() => setRequestModalOpen(false)}
       />
+
+      <OfflineIndicator />
     </div>
   );
 }

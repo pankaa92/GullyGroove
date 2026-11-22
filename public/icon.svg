@@ -1,0 +1,54 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#17112B" />
+      <stop offset="55%" stop-color="#0B0B14" />
+      <stop offset="100%" stop-color="#0B162C" />
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="46%" r="52%">
+      <stop offset="0%" stop-color="#7C3AED" stop-opacity="0.32" />
+      <stop offset="100%" stop-color="#09090D" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="gg" x1="92" y1="136" x2="420" y2="376" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="100%" stop-color="#CBD5E1" />
+    </linearGradient>
+    <linearGradient id="wave1" x1="48" y1="272" x2="464" y2="240" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#A855F7" />
+      <stop offset="50%" stop-color="#8B5CF6" />
+      <stop offset="100%" stop-color="#38BDF8" />
+    </linearGradient>
+    <linearGradient id="wave2" x1="56" y1="224" x2="456" y2="288" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#3B82F6" />
+      <stop offset="100%" stop-color="#C084FC" />
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#bg)" />
+  <rect width="512" height="512" rx="112" fill="url(#glow)" />
+  <rect x="10" y="10" width="492" height="492" rx="102" stroke="#8B5CF6" stroke-opacity="0.35" stroke-width="6" />
+
+  <g transform="translate(36, 94) scale(7.85)">
+    <path
+      d="M24.2 13.5C22.9 11.9 20.9 11 18.6 11C14.1 11 10.8 14.7 10.8 20C10.8 25.3 14.1 29 18.6 29C22.4 29 25 26.7 25.4 22.8H18.9V19.6H28.5V21.5C28.5 27.6 24.4 32 18.5 32C12.2 32 7.5 27 7.5 20C7.5 13 12.2 8 18.5 8C22 8 25.1 9.5 27 12.1L24.2 13.5Z"
+      fill="url(#gg)"
+    />
+    <path
+      d="M45.7 13.5C44.4 11.9 42.4 11 40.1 11C35.6 11 32.3 14.7 32.3 20C32.3 25.3 35.6 29 40.1 29C43.9 29 46.5 26.7 46.9 22.8H40.4V19.6H50V21.5C50 27.6 45.9 32 40 32C33.7 32 29 27 29 20C29 13 33.7 8 40 8C43.5 8 46.6 9.5 48.5 12.1L45.7 13.5Z"
+      fill="url(#gg)"
+    />
+    <path
+      d="M3 22.5C7 22.5 9.5 14 13.5 14C17.5 14 19.5 27 23.5 27C27.5 27 29.5 12 33.5 12C37.5 12 39.5 26 43.5 26C47.5 26 49.5 17.5 53 17.5"
+      stroke="url(#wave2)"
+      stroke-width="1.6"
+      stroke-linecap="round"
+      stroke-opacity="0.85"
+    />
+    <path
+      d="M2 20C6 20 8.2 26.5 12 26.5C16.2 26.5 18.5 11.5 22.8 11.5C27 11.5 29.2 28.5 33.5 28.5C37.8 28.5 40 13.5 44.2 13.5C48 13.5 50.2 20 54 20"
+      stroke="url(#wave1)"
+      stroke-width="2.4"
+      stroke-linecap="round"
+    />
+  </g>
+</svg>
