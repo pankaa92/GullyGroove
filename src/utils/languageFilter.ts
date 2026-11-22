@@ -10,6 +10,7 @@ export const LANGUAGE_FILTERS = [
   'South',
   'Nepali & NE',
   'Devotional',
+  'Korean',
   'English',
 ] as const;
 
@@ -54,6 +55,13 @@ export function matchesLanguageFilter(track: Track, filter: LanguageFilter): boo
       return (
         playlists.includes('bhakti-bhajan-aarti') ||
         DEVOTIONAL_TOKENS.some((tok) => lang.includes(tok) || genre.includes(tok))
+      );
+    case 'Korean':
+      return (
+        lang.includes('korean') ||
+        genre.includes('k-pop') ||
+        genre.includes('k-drama') ||
+        playlists.includes('bts-korean-songs')
       );
     case 'English':
       return lang.includes('english') || lang.includes('instrumental');
