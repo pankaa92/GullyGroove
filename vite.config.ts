@@ -24,7 +24,7 @@ export default defineConfig(() => {
           'pwa-maskable-512x512.png',
         ],
         manifest: {
-          id: '/',
+          id: './',
           name: 'GullyGroove — Feel the Beat',
           short_name: 'GullyGroove',
           description:
@@ -33,24 +33,24 @@ export default defineConfig(() => {
           background_color: '#09090D',
           display: 'standalone',
           orientation: 'portrait-primary',
-          start_url: '/',
-          scope: '/',
+          start_url: './',
+          scope: './',
           categories: ['music', 'entertainment'],
           icons: [
             {
-              src: '/pwa-192x192.png',
+              src: 'pwa-192x192.png',
               sizes: '192x192',
               type: 'image/png',
               purpose: 'any',
             },
             {
-              src: '/pwa-512x512.png',
+              src: 'pwa-512x512.png',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'any',
             },
             {
-              src: '/pwa-maskable-512x512.png',
+              src: 'pwa-maskable-512x512.png',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'maskable',
@@ -105,32 +105,37 @@ export default defineConfig(() => {
       {
         name: 'copy-unbundled-src-assets',
         apply: 'build',
+        enforce: 'post',
         configResolved(config) {
           resolvedOutDir = config.build.outDir || 'dist';
         },
-        closeBundle(error?: Error): void {
-          if (error) {
-            return;
-          }
-          const outDir = path.resolve(__dirname, resolvedOutDir);
-          const srcAssets = path.resolve(__dirname, 'src/assets');
-          const distAssets = path.resolve(outDir, 'src/assets');
-          if (fs.existsSync(outDir) && fs.existsSync(srcAssets)) {
-            fs.cpSync(srcAssets, distAssets, {recursive: true, force: true});
-          }
-          if (fs.existsSync(outDir)) {
-            fs.writeFileSync(path.join(outDir, '.nojekyll'), '');
-            const indexFile = path.join(outDir, 'index.html');
-            const notFoundFile = path.join(outDir, '404.html');
-            if (fs.existsSync(indexFile)) {
-              fs.copyFileSync(indexFile, notFoundFile);
+        closeBundle: {
+          order: 'post',
+          sequential: true,
+          handler(error?: Error): void {
+            if (error) {
+              return;
             }
-            if (path.basename(outDir) === 'dist') {
-              const docsDir = path.resolve(__dirname, 'docs');
-              fs.rmSync(docsDir, {recursive: true, force: true});
-              fs.cpSync(outDir, docsDir, {recursive: true, force: true});
+            const outDir = path.resolve(__dirname, resolvedOutDir);
+            const srcAssets = path.resolve(__dirname, 'src/assets');
+            const distAssets = path.resolve(outDir, 'src/assets');
+            if (fs.existsSync(outDir) && fs.existsSync(srcAssets)) {
+              fs.cpSync(srcAssets, distAssets, {recursive: true, force: true});
             }
-          }
+            if (fs.existsSync(outDir)) {
+              fs.writeFileSync(path.join(outDir, '.nojekyll'), '');
+              const indexFile = path.join(outDir, 'index.html');
+              const notFoundFile = path.join(outDir, '404.html');
+              if (fs.existsSync(indexFile)) {
+                fs.copyFileSync(indexFile, notFoundFile);
+              }
+              if (path.basename(outDir) === 'dist') {
+                const docsDir = path.resolve(__dirname, 'docs');
+                fs.rmSync(docsDir, {recursive: true, force: true});
+                fs.cpSync(outDir, docsDir, {recursive: true, force: true});
+              }
+            }
+          },
         },
       },
     ],

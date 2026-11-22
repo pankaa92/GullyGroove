@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { BrandLogo } from './BrandLogo';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 
@@ -112,7 +113,7 @@ export function PWAInstallButton({ variant = 'header' }: PWAInstallButtonProps) 
           isAndroid={isAndroid}
           copiedUrl={copiedUrl}
           onCopyUrl={() => {
-            navigator.clipboard?.writeText(window.location.origin).then(() => {
+            navigator.clipboard?.writeText(window.location.href.split('#')[0]).then(() => {
               setCopiedUrl(true);
               setTimeout(() => setCopiedUrl(false), 2000);
             }).catch(() => {});
@@ -144,7 +145,7 @@ export function PWAInstallButton({ variant = 'header' }: PWAInstallButtonProps) 
           isAndroid={isAndroid}
           copiedUrl={copiedUrl}
           onCopyUrl={() => {
-            navigator.clipboard?.writeText(window.location.origin).then(() => {
+            navigator.clipboard?.writeText(window.location.href.split('#')[0]).then(() => {
               setCopiedUrl(true);
               setTimeout(() => setCopiedUrl(false), 2000);
             }).catch(() => {});
@@ -174,7 +175,7 @@ export function PWAInstallButton({ variant = 'header' }: PWAInstallButtonProps) 
         isAndroid={isAndroid}
         copiedUrl={copiedUrl}
         onCopyUrl={() => {
-          navigator.clipboard?.writeText(window.location.origin).then(() => {
+          navigator.clipboard?.writeText(window.location.href.split('#')[0]).then(() => {
             setCopiedUrl(true);
             setTimeout(() => setCopiedUrl(false), 2000);
           }).catch(() => {});
@@ -202,12 +203,12 @@ function InstallGuideModal({
   onCopyUrl,
   onClose,
 }: InstallGuideModalProps) {
-  if (!mode) return null;
+  if (!mode || typeof document === 'undefined') return null;
   const isInIframe = typeof window !== 'undefined' && window.self !== window.top;
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-sm p-3 sm:p-4"
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
       role="dialog"
       aria-modal="true"
       aria-label={
@@ -218,7 +219,7 @@ function InstallGuideModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-2xl bg-[#101018] border border-violet-500/30 p-5 sm:p-6 shadow-2xl shadow-violet-950/60"
+        className="w-full max-w-md max-h-[85dvh] overflow-y-auto rounded-2xl bg-[#101018] border border-violet-500/30 p-5 sm:p-6 shadow-2xl shadow-violet-950/60"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3">
@@ -380,6 +381,7 @@ function InstallGuideModal({
           Got it
         </button>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
