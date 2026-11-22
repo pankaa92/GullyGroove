@@ -651,18 +651,15 @@ export default function App() {
             </button>
           </nav>
 
-          {/* Zone 3: Install App & Tune Request */}
-          <div className="flex items-center gap-2.5 shrink-0">
-            <PWAInstallButton variant="header" />
-            <button
-              type="button"
-              onClick={() => setRequestModalOpen(true)}
-              className="inline-flex h-9 items-center gap-1.5 px-4 rounded-xl bg-gradient-to-r from-violet-600 to-blue-500 text-xs font-semibold text-white shadow-md shadow-violet-950/50 hover:opacity-95 active:scale-[0.98] transition-all whitespace-nowrap shrink-0"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Tune Request
-            </button>
-          </div>
+          {/* Zone 3: Single Primary Action */}
+          <button
+            type="button"
+            onClick={() => setRequestModalOpen(true)}
+            className="inline-flex h-9 items-center gap-1.5 px-4 rounded-xl bg-gradient-to-r from-violet-600 to-blue-500 text-xs font-semibold text-white shadow-md shadow-violet-950/50 hover:opacity-95 active:scale-[0.98] transition-all whitespace-nowrap shrink-0"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Tune Request
+          </button>
         </header>
 
         {/* Mobile & Tablet Compact Sticky Top Bar (52px) */}

@@ -123,14 +123,16 @@ export function PWAInstallButton({ variant = 'header' }: PWAInstallButtonProps) 
     );
   }
 
-  // On homepage Hero: show prominent Install App button (triggers beforeinstallprompt on Android/Chrome, or iPhone Safari guide on iOS)
+  const hideOnDesktopClass = isIOS || isAndroid ? '' : 'lg:hidden';
+
+  // On homepage Hero: show prominent Install App button on mobile/tablet/iOS/Android (hidden on desktop)
   if (variant === 'hero') {
     return (
       <>
         <button
           type="button"
           onClick={handleInstallClick}
-          className="inline-flex h-11 items-center justify-center gap-2 px-5 rounded-xl bg-gradient-to-r from-violet-600/30 to-blue-500/30 hover:from-violet-600/45 hover:to-blue-500/45 border border-violet-400/45 text-sm font-semibold text-white shadow-md shadow-violet-950/40 transition-all whitespace-nowrap shrink-0"
+          className={`${hideOnDesktopClass} inline-flex h-11 items-center justify-center gap-2 px-5 rounded-xl bg-gradient-to-r from-violet-600/30 to-blue-500/30 hover:from-violet-600/45 hover:to-blue-500/45 border border-violet-400/45 text-sm font-semibold text-white shadow-md shadow-violet-950/40 transition-all whitespace-nowrap shrink-0`}
         >
           <Download className="w-4 h-4 text-blue-300" />
           <span>Install App</span>
@@ -153,14 +155,14 @@ export function PWAInstallButton({ variant = 'header' }: PWAInstallButtonProps) 
     );
   }
 
-  // Header button variant (Desktop & Mobile top bar)
+  // Header button variant (Mobile & Tablet top bar; hidden on desktop)
   return (
     <>
       <button
         type="button"
         onClick={handleInstallClick}
         aria-label="Install App"
-        className="inline-flex h-9 items-center gap-1.5 px-2.5 sm:px-3.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] border border-violet-400/35 text-xs font-semibold text-slate-100 transition-all whitespace-nowrap shrink-0"
+        className={`${hideOnDesktopClass} inline-flex h-9 items-center gap-1.5 px-2.5 sm:px-3.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] border border-violet-400/35 text-xs font-semibold text-slate-100 transition-all whitespace-nowrap shrink-0`}
       >
         <Download className="w-3.5 h-3.5 text-violet-300" />
         <span>Install App</span>
