@@ -258,7 +258,7 @@ export function PlayerBar({
 
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [volume, setVolume] = useState(0.82);
+  const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
   const [minimizedDrawerTab, setMinimizedDrawerTab] =
     useState<ConsoleDrawerTab>(null);
@@ -2441,20 +2441,59 @@ export function PlayerBar({
                   />
 
                   {/* Main Transport Deck: Hook Mode, Shuffle, Prev, Play/Pause, Next, Repeat */}
-                  <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1">
-                    {/* Left: Hook-Based Playback Mode Toggle */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                    {/* Left: Compact Dual-State Sliding Toggle (Full <-> Hook) */}
                     <button
                       type="button"
-                      onClick={handleToggleHookMode}
-                      aria-pressed={hookMode}
-                      className={`inline-flex h-11 items-center gap-2 px-3.5 rounded-xl border text-xs font-semibold transition-all whitespace-nowrap shrink-0 ${
+                      role="switch"
+                      aria-checked={hookMode}
+                      aria-label={
                         hookMode
-                          ? 'bg-gradient-to-r from-violet-600/35 to-blue-500/30 border-violet-400/55 text-white shadow-md shadow-violet-950/50'
-                          : 'bg-white/[0.04] border-white/[0.08] text-slate-300 hover:text-white hover:border-violet-500/35'
+                          ? 'Hook Mode active. Switch to Full Song'
+                          : 'Full Song active. Switch to Hook Mode'
+                      }
+                      onClick={handleToggleHookMode}
+                      className={`group relative mx-auto sm:mx-0 inline-flex h-8 items-center rounded-xl p-[3px] bg-[#06060C] border transition-all duration-200 shadow-[inset_0_2px_6px_rgba(0,0,0,0.85)] shrink-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-400 ${
+                        hookMode
+                          ? 'border-violet-400/50 shadow-[inset_0_2px_6px_rgba(0,0,0,0.85),0_0_16px_-4px_rgba(139,92,246,0.55)]'
+                          : 'border-white/[0.11] hover:border-violet-400/35'
                       }`}
                     >
-                      <Scissors className="w-3.5 h-3.5 text-violet-300" />
-                      <span>{hookMode ? 'Hook Mode: On' : 'Full Song'}</span>
+                      <span className="relative grid grid-cols-2 items-center">
+                        <span
+                          aria-hidden="true"
+                          className={`pointer-events-none absolute inset-y-0 left-0 w-1/2 rounded-lg transition-all duration-200 ease-out ${
+                            hookMode
+                              ? 'translate-x-full bg-gradient-to-r from-violet-600 to-blue-500 border border-violet-300/40 shadow-[0_0_12px_rgba(139,92,246,0.55)]'
+                              : 'translate-x-0 bg-white/[0.13] border border-white/[0.18] shadow-sm'
+                          }`}
+                        />
+                        <span
+                          className={`relative z-10 inline-flex items-center justify-center gap-1 px-2.5 py-1 text-[11px] font-semibold tracking-tight whitespace-nowrap transition-colors duration-200 ${
+                            !hookMode ? 'text-white' : 'text-slate-400 group-hover:text-slate-200'
+                          }`}
+                        >
+                          <span
+                            aria-hidden="true"
+                            className={`h-1.5 w-1.5 rounded-full transition-colors ${
+                              !hookMode ? 'bg-blue-400 shadow-[0_0_6px_rgba(96,165,250,0.9)]' : 'bg-slate-600'
+                            }`}
+                          />
+                          <span>Full</span>
+                        </span>
+                        <span
+                          className={`relative z-10 inline-flex items-center justify-center gap-1 px-2.5 py-1 text-[11px] font-semibold tracking-tight whitespace-nowrap transition-colors duration-200 ${
+                            hookMode ? 'text-white' : 'text-slate-400 group-hover:text-slate-200'
+                          }`}
+                        >
+                          <Scissors
+                            className={`w-3 h-3 transition-colors ${
+                              hookMode ? 'text-white' : 'text-violet-300/75'
+                            }`}
+                          />
+                          <span>Hook</span>
+                        </span>
+                      </span>
                     </button>
 
                     {/* Center: Transport Controls */}
@@ -2528,8 +2567,8 @@ export function PlayerBar({
                       </button>
                     </div>
 
-                    {/* Right: Volume Control (where supported) */}
-                    <div className="flex items-center gap-2 ml-auto sm:ml-0">
+                    {/* Right: Volume Control (Desktop only) */}
+                    <div className="hidden lg:flex items-center gap-2">
                       <button
                         type="button"
                         onClick={() => setMuted((prev) => !prev)}
@@ -3044,20 +3083,49 @@ export function PlayerBar({
 
           {/* Center: Unified Studio Controls & Seek Scrubber */}
           <div className="flex flex-1 max-w-xl flex-col items-center gap-1.5">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <button
                 type="button"
+                role="switch"
+                aria-checked={hookMode}
                 onClick={handleToggleHookMode}
-                aria-label="Toggle Hook Mode"
-                aria-pressed={hookMode}
-                title={hookMode ? 'Hook Mode: On' : 'Full Song'}
-                className={`flex h-9 w-9 items-center justify-center rounded-xl border transition-colors ${
+                aria-label={
                   hookMode
-                    ? 'bg-gradient-to-r from-violet-600/35 to-blue-500/30 border-violet-400/50 text-violet-200'
-                    : 'bg-white/[0.03] border-white/[0.07] text-slate-400 hover:text-white'
+                    ? 'Hook Mode active. Switch to Full Song'
+                    : 'Full Song active. Switch to Hook Mode'
+                }
+                title={hookMode ? 'Hook Mode: On (switch to Full)' : 'Full Song (switch to Hook)'}
+                className={`group relative inline-flex h-8 items-center rounded-xl p-[2.5px] bg-[#06060C] border transition-all duration-200 shadow-[inset_0_1px_5px_rgba(0,0,0,0.85)] shrink-0 ${
+                  hookMode
+                    ? 'border-violet-400/50 shadow-[inset_0_1px_5px_rgba(0,0,0,0.85),0_0_12px_-3px_rgba(139,92,246,0.5)]'
+                    : 'border-white/[0.1] hover:border-violet-400/35'
                 }`}
               >
-                <Scissors className="w-3.5 h-3.5" />
+                <span className="relative grid grid-cols-2 items-center">
+                  <span
+                    aria-hidden="true"
+                    className={`pointer-events-none absolute inset-y-0 left-0 w-1/2 rounded-lg transition-all duration-200 ease-out ${
+                      hookMode
+                        ? 'translate-x-full bg-gradient-to-r from-violet-600 to-blue-500 border border-violet-300/35 shadow-[0_0_10px_rgba(139,92,246,0.5)]'
+                        : 'translate-x-0 bg-white/[0.12] border border-white/[0.16]'
+                    }`}
+                  />
+                  <span
+                    className={`relative z-10 px-2 py-0.5 text-[10px] font-semibold tracking-tight whitespace-nowrap transition-colors ${
+                      !hookMode ? 'text-white' : 'text-slate-400 group-hover:text-slate-200'
+                    }`}
+                  >
+                    Full
+                  </span>
+                  <span
+                    className={`relative z-10 inline-flex items-center gap-0.5 px-2 py-0.5 text-[10px] font-semibold tracking-tight whitespace-nowrap transition-colors ${
+                      hookMode ? 'text-white' : 'text-slate-400 group-hover:text-slate-200'
+                    }`}
+                  >
+                    <Scissors className="w-2.5 h-2.5" />
+                    <span>Hook</span>
+                  </span>
+                </span>
               </button>
 
               <button
@@ -3402,16 +3470,39 @@ export function PlayerBar({
             <div className="flex items-center justify-between gap-1 pt-0.5">
               <button
                 type="button"
+                role="switch"
+                aria-checked={hookMode}
                 onClick={handleToggleHookMode}
-                aria-label="Toggle Hook Mode"
-                aria-pressed={hookMode}
-                className={`flex h-8 w-8 items-center justify-center rounded-lg border transition-colors ${
+                aria-label={
                   hookMode
-                    ? 'bg-gradient-to-r from-violet-600/35 to-blue-500/30 border-violet-400/50 text-violet-200'
-                    : 'bg-white/[0.03] border-white/[0.07] text-slate-400 hover:text-white'
+                    ? 'Hook Mode active. Switch to Full Song'
+                    : 'Full Song active. Switch to Hook Mode'
+                }
+                className={`inline-flex h-8 items-center gap-1 px-1.5 rounded-xl bg-[#06060C] border transition-all duration-200 shadow-[inset_0_1px_4px_rgba(0,0,0,0.85)] shrink-0 ${
+                  hookMode
+                    ? 'border-violet-400/50 text-violet-200 shadow-[inset_0_1px_4px_rgba(0,0,0,0.85),0_0_10px_-2px_rgba(139,92,246,0.5)]'
+                    : 'border-white/[0.1] text-slate-400 hover:text-white'
                 }`}
               >
-                <Scissors className="w-3.5 h-3.5" />
+                <Scissors
+                  className={`w-3 h-3 transition-colors ${
+                    hookMode ? 'text-violet-300' : 'text-slate-400'
+                  }`}
+                />
+                <span
+                  aria-hidden="true"
+                  className={`relative inline-flex h-3.5 w-6 items-center rounded-full p-0.5 transition-colors duration-200 ${
+                    hookMode
+                      ? 'bg-gradient-to-r from-violet-600 to-blue-500'
+                      : 'bg-white/[0.12]'
+                  }`}
+                >
+                  <span
+                    className={`h-2.5 w-2.5 rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                      hookMode ? 'translate-x-2.5' : 'translate-x-0'
+                    }`}
+                  />
+                </span>
               </button>
 
               <button
