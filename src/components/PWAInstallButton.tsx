@@ -4,6 +4,7 @@ import {
   Compass,
   Copy,
   Download,
+  ExternalLink,
   MoreVertical,
   PlusSquare,
   Share,
@@ -352,6 +353,18 @@ function InstallGuideModal({
                 </p>
               </div>
             </div>
+
+            {isInIframe ? (
+              <a
+                href={typeof window !== 'undefined' ? window.location.href.split('#')[0] : '/'}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full flex items-center justify-center gap-2 h-10 rounded-xl bg-gradient-to-r from-violet-600 to-blue-500 text-xs font-semibold text-white shadow-md shadow-violet-950/50 hover:opacity-95 transition-opacity"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Open in Browser Tab to Install</span>
+              </a>
+            ) : null}
 
             <button
               type="button"

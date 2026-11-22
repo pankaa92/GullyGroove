@@ -99,15 +99,20 @@ export function usePWAInstall() {
       return 'unavailable';
     }
     const promptEvent = sharedDeferredPrompt;
-    await promptEvent.prompt();
-    const { outcome } = await promptEvent.userChoice;
-    if (outcome === 'accepted') {
-      sharedInstalled = true;
-      sharedDeferredPrompt = null;
-      notifySubscribers();
-      return 'accepted';
+    sharedDeferredPrompt = null;
+    notifySubscribers();
+    try {
+      await promptEvent.prompt();
+      const { outcome } = await promptEvent.userChoice;
+      if (outcome === 'accepted') {
+        sharedInstalled = true;
+        notifySubscribers();
+        return 'accepted';
+      }
+      return 'dismissed';
+    } catch {
+      return 'unavailable';
     }
-    return 'dismissed';
   }, []);
 
   return {
