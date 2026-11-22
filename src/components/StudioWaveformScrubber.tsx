@@ -1,5 +1,5 @@
 import { RotateCcw, Scissors } from 'lucide-react';
-import { useMemo, useRef } from 'react';
+import { memo, useMemo, useRef } from 'react';
 import { formatDuration } from '../utils/format';
 import { clampHookWindow, generateWaveformBars } from '../utils/hookTiming';
 
@@ -7,6 +7,8 @@ interface StudioWaveformScrubberProps {
   trackId: string;
   currentTime: number;
   duration: number;
+  isPlaying: boolean;
+  bpm?: number;
   hookMode: boolean;
   hookStartSec: number;
   hookEndSec: number;
@@ -16,10 +18,12 @@ interface StudioWaveformScrubberProps {
   onResetHook: () => void;
 }
 
-export function StudioWaveformScrubber({
+export const StudioWaveformScrubber = memo(function StudioWaveformScrubber({
   trackId,
   currentTime,
   duration,
+  isPlaying,
+  bpm,
   hookMode,
   hookStartSec,
   hookEndSec,
@@ -35,6 +39,8 @@ export function StudioWaveformScrubber({
   const progressRatio = Math.max(0, Math.min(1, currentTime / safeDur));
   const hookStartPct = Math.max(0, Math.min(100, (hookStartSec / safeDur) * 100));
   const hookEndPct = Math.max(hookStartPct, Math.min(100, (hookEndSec / safeDur) * 100));
+  const safeBpm = Math.max(70, Math.min(180, bpm || 110));
+  const beatMs = Math.round(60000 / safeBpm);
 
   const seekFromPointer = (clientX: number) => {
     const el = waveContainerRef.current;
@@ -57,7 +63,7 @@ export function StudioWaveformScrubber({
 
   return (
     <div className="space-y-2">
-      {/* Interactive 48-bar Waveform Scrubber with Active Hook Window Highlight */}
+      {/* Interactive 48-bar Beat-Reactive Waveform & Hook Scrubber */}
       <div
         ref={waveContainerRef}
         role="slider"
@@ -91,6 +97,13 @@ export function StudioWaveformScrubber({
           const barPct = ((idx + 0.5) / bars.length) * 100;
           const isPlayed = barPct <= progressRatio * 100;
           const inHook = barPct >= hookStartPct && barPct <= hookEndPct;
+          const barDurationMs =
+            idx % 3 === 0
+              ? beatMs
+              : idx % 3 === 1
+                ? Math.round(beatMs * 0.88)
+                : Math.round(beatMs * 1.14);
+          const barDelayMs = -(((idx * 137) % barDurationMs));
 
           return (
             <span
@@ -98,12 +111,24 @@ export function StudioWaveformScrubber({
               aria-hidden="true"
               className={`relative z-[1] flex-1 rounded-full transition-colors duration-150 ${
                 isPlayed
-                  ? 'bg-gradient-to-t from-violet-500 to-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.45)]'
+                  ? 'bg-gradient-to-t from-violet-500 to-blue-400'
                   : inHook
-                    ? 'bg-violet-400/45'
-                    : 'bg-white/15 hover:bg-white/30'
+                    ? isPlaying
+                      ? 'bg-gradient-to-t from-violet-400/75 to-blue-400/70'
+                      : 'bg-violet-400/45'
+                    : 'bg-white/20 hover:bg-white/35'
+              } ${
+                isPlaying
+                  ? inHook
+                    ? 'gg-wave-beat-hook'
+                    : 'gg-wave-beat-bar'
+                  : ''
               }`}
-              style={{ height: `${Math.round(height * 100)}%` }}
+              style={{
+                height: `${Math.round(height * (isPlaying ? 74 : 96))}%`,
+                animationDuration: isPlaying ? `${barDurationMs}ms` : undefined,
+                animationDelay: isPlaying ? `${barDelayMs}ms` : undefined,
+              }}
             />
           );
         })}
@@ -186,4 +211,4 @@ export function StudioWaveformScrubber({
       </div>
     </div>
   );
-}
+});

@@ -1,4 +1,5 @@
 import { Play } from 'lucide-react';
+import { memo } from 'react';
 import type { PlaylistWithStats } from '../types/music';
 import { formatTotalMinutes } from '../utils/format';
 import { ArtworkImage } from './ArtworkImage';
@@ -10,7 +11,7 @@ interface PlaylistCardProps {
   onQuickPlay: (playlistId: string) => void;
 }
 
-export function PlaylistCard({
+export const PlaylistCard = memo(function PlaylistCard({
   playlist,
   activeLanguage,
   onSelect,
@@ -22,7 +23,7 @@ export function PlaylistCard({
       : `${playlist.trackCount} songs`;
 
   return (
-    <article className="group relative flex flex-col rounded-2xl bg-[#12121B] border border-white/[0.06] p-2.5 sm:p-3.5 transition-all duration-200 ease-out hover:-translate-y-0.5 hover:bg-[#191926] hover:border-violet-500/35 hover:shadow-[0_14px_34px_-14px_rgba(124,58,237,0.45)]">
+    <article className="group relative flex flex-col rounded-2xl bg-[#12121B] border border-white/[0.06] p-2.5 sm:p-3.5 transform-gpu transition-[transform,background-color,border-color,box-shadow] duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#191926] hover:border-violet-500/35 hover:shadow-[0_14px_34px_-14px_rgba(124,58,237,0.45)]">
       <div className="relative aspect-square w-full overflow-hidden rounded-xl bg-[#0D0D14]">
         <button
           type="button"
@@ -46,7 +47,7 @@ export function PlaylistCard({
             onQuickPlay(playlist.id);
           }}
           aria-label={`Play ${playlist.title}`}
-          className="absolute bottom-2.5 right-2.5 flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-r from-violet-600 to-blue-500 text-white shadow-xl shadow-violet-950/70 transition-all duration-200 ease-out hover:scale-105 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white md:opacity-0 md:translate-y-2 md:group-hover:opacity-100 md:group-hover:translate-y-0"
+          className="absolute bottom-2.5 right-2.5 flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-r from-violet-600 to-blue-500 text-white shadow-xl shadow-violet-950/70 transform-gpu transition-[transform,opacity] duration-150 ease-out hover:scale-105 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white md:opacity-0 md:translate-y-2 md:group-hover:opacity-100 md:group-hover:translate-y-0"
         >
           <Play className="w-4 h-4 fill-current ml-0.5" />
         </button>
@@ -82,4 +83,4 @@ export function PlaylistCard({
       </button>
     </article>
   );
-}
+});

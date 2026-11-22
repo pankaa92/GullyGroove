@@ -8,13 +8,23 @@
     --font-mono: 'JetBrains Mono', monospace;
   }
 
-  html, body {
+  html {
     font-family: var(--font-sans);
     background-color: #09090D;
     color: #F4F4F5;
-    scroll-behavior: smooth;
-    overflow-x: hidden;
     -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: #09090D;
+    color: #F4F4F5;
+    overflow-x: clip;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button, a, [role="button"], [role="tab"], input, select {
+    touch-action: manipulation;
   }
 
   h1, h2, h3, .font-display {
@@ -35,20 +45,20 @@
     radial-gradient(48% 40% at 88% 4%, rgba(59, 130, 246, 0.16) 0%, rgba(59, 130, 246, 0) 70%);
 }
 
-/* Compositor-only smooth view entrance transition */
+/* Compositor-only high-refresh-rate smooth view entrance transition */
 @keyframes ggViewEnter {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translate3d(0, 6px, 0);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translate3d(0, 0, 0);
   }
 }
 
 .gg-view-enter {
-  animation: ggViewEnter 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: ggViewEnter 190ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* Live audio equalizer bars for the currently playing track row */
@@ -143,7 +153,49 @@ input[type='range'].gg-range:hover::-webkit-slider-thumb {
 
 .gg-boombox-eq-bar {
   transform-origin: center;
+  will-change: transform;
   animation: ggBoomboxEq 640ms cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+/* Studio Waveform & Hook beat-reactive vertical bounce (GPU scaleY only) */
+@keyframes ggWaveBeat {
+  0%, 100% {
+    transform: scaleY(0.54);
+  }
+  36% {
+    transform: scaleY(1.22);
+  }
+  68% {
+    transform: scaleY(0.76);
+  }
+}
+
+@keyframes ggWaveHookBeat {
+  0%, 100% {
+    transform: scaleY(0.48);
+  }
+  34% {
+    transform: scaleY(1.38);
+  }
+  66% {
+    transform: scaleY(0.72);
+  }
+}
+
+.gg-wave-beat-bar {
+  transform-origin: center;
+  will-change: transform;
+  animation-name: ggWaveBeat;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  animation-iteration-count: infinite;
+}
+
+.gg-wave-beat-hook {
+  transform-origin: center;
+  will-change: transform;
+  animation-name: ggWaveHookBeat;
+  animation-timing-function: cubic-bezier(0.34, 1.25, 0.64, 1);
+  animation-iteration-count: infinite;
 }
 
 /* Dual-handle hook scrubber inputs (only thumbs receive pointer events) */

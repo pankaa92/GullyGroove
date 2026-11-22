@@ -217,7 +217,7 @@ export default function App() {
     ].slice(0, 30));
   }, []);
 
-  const handleToggleFavorite = (trackId: string, discoveredTrack?: Track) => {
+  const handleToggleFavorite = useCallback((trackId: string, discoveredTrack?: Track) => {
     const wasFavorite = favorites.has(trackId);
     setFavorites((prev) => {
       const next = new Set(prev);
@@ -228,7 +228,7 @@ export default function App() {
     if (!wasFavorite && discoveredTrack && !tracks.some((t) => t.id === trackId)) {
       void handleAddToPlaylist(trackId, 'my-playlist', discoveredTrack);
     }
-  };
+  }, [favorites, tracks]);
 
   const playTrackFromList = useCallback(
     (track: Track, list: Track[]) => {
@@ -333,12 +333,22 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [handlePlayPause]);
 
-  const openPlaylist = (playlistId: string) => {
+  const navigateToTab = useCallback((tab: ActiveTab) => {
+    setActiveTab(tab);
+    if (window.scrollY > 12) {
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    }
+  }, []);
+
+  const openPlaylist = useCallback((playlistId: string) => {
     setSelectedPlaylistId(playlistId);
     setPlaylistDirectAudioOnly(false);
     setVisibleTrackLimit(80);
     setActiveTab('playlist-detail');
-  };
+    if (window.scrollY > 12) {
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    }
+  }, []);
 
   const getPlaylistTracks = useCallback(
     (playlistId: string) => {
@@ -352,7 +362,7 @@ export default function App() {
     [tracks, favorites]
   );
 
-  const quickPlayPlaylist = (playlistId: string) => {
+  const quickPlayPlaylist = useCallback((playlistId: string) => {
     const baseTracks = getPlaylistTracks(playlistId);
     const matchingTracks =
       languageFilter === 'All'
@@ -362,7 +372,7 @@ export default function App() {
     if (listToPlay.length > 0) {
       playTrackFromList(listToPlay[0], listToPlay);
     }
-  };
+  }, [getPlaylistTracks, languageFilter, playTrackFromList]);
 
   const handleCreateVaultTrack = async (input: NewAuthorisedTrackInput) => {
     const data = await createVaultTrack(input);
@@ -379,7 +389,7 @@ export default function App() {
     setFacets(data.facets);
   };
 
-  const handleAddToPlaylist = async (
+  const handleAddToPlaylist = useCallback(async (
     trackId: string,
     playlistId: string,
     discoveredTrack?: Track
@@ -402,7 +412,7 @@ export default function App() {
     });
     setPlaylists(data.playlists);
     setFacets(data.facets);
-  };
+  }, []);
 
   const playlistsWithLiveCounts = useMemo(() => {
     return playlists.map((pl) => {
@@ -506,7 +516,7 @@ export default function App() {
         <div className="rounded-2xl bg-[#101017] border border-white/[0.07] p-3 space-y-3">
           <button
             type="button"
-            onClick={() => setActiveTab('discover')}
+            onClick={() => navigateToTab('discover')}
             className="flex items-center gap-2.5 px-2 py-1 text-left focus-visible:outline-none"
           >
             <BrandLogo size="md" />
@@ -518,8 +528,8 @@ export default function App() {
           <nav aria-label="Sidebar Navigation" className="space-y-1">
             <button
               type="button"
-              onClick={() => setActiveTab('discover')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 ${
+              onClick={() => navigateToTab('discover')}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-[background-color,border-color,color] duration-150 ease-out ${
                 activeTab === 'discover'
                   ? 'bg-gradient-to-r from-violet-600/25 to-blue-500/20 text-white border border-violet-500/30'
                   : 'text-slate-400 hover:text-white hover:bg-white/[0.05] border border-transparent'
@@ -531,8 +541,8 @@ export default function App() {
 
             <button
               type="button"
-              onClick={() => setActiveTab('playlists')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 ${
+              onClick={() => navigateToTab('playlists')}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-[background-color,border-color,color] duration-150 ease-out ${
                 activeTab === 'playlists' || activeTab === 'playlist-detail'
                   ? 'bg-gradient-to-r from-violet-600/25 to-blue-500/20 text-white border border-violet-500/30'
                   : 'text-slate-400 hover:text-white hover:bg-white/[0.05] border border-transparent'
@@ -544,8 +554,8 @@ export default function App() {
 
             <button
               type="button"
-              onClick={() => setActiveTab('vault')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 ${
+              onClick={() => navigateToTab('vault')}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-[background-color,border-color,color] duration-150 ease-out ${
                 activeTab === 'vault'
                   ? 'bg-gradient-to-r from-violet-600/25 to-blue-500/20 text-white border border-violet-500/30'
                   : 'text-slate-400 hover:text-white hover:bg-white/[0.05] border border-transparent'
@@ -618,7 +628,7 @@ export default function App() {
           <nav className="flex items-center gap-6 text-sm font-medium">
             <button
               type="button"
-              onClick={() => setActiveTab('discover')}
+              onClick={() => navigateToTab('discover')}
               className={`whitespace-nowrap shrink-0 py-1 transition-colors border-b-2 ${
                 activeTab === 'discover'
                   ? 'text-white border-violet-500'
@@ -629,7 +639,7 @@ export default function App() {
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab('playlists')}
+              onClick={() => navigateToTab('playlists')}
               className={`whitespace-nowrap shrink-0 py-1 transition-colors border-b-2 ${
                 activeTab === 'playlists' || activeTab === 'playlist-detail'
                   ? 'text-white border-violet-500'
@@ -640,7 +650,7 @@ export default function App() {
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab('search')}
+              onClick={() => navigateToTab('search')}
               className={`whitespace-nowrap shrink-0 py-1 transition-colors border-b-2 ${
                 activeTab === 'search'
                   ? 'text-white border-violet-500'
@@ -655,7 +665,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => setRequestModalOpen(true)}
-            className="inline-flex h-9 items-center gap-1.5 px-4 rounded-xl bg-gradient-to-r from-violet-600 to-blue-500 text-xs font-semibold text-white shadow-md shadow-violet-950/50 hover:opacity-95 active:scale-[0.98] transition-all whitespace-nowrap shrink-0"
+            className="inline-flex h-9 items-center gap-1.5 px-4 rounded-xl bg-gradient-to-r from-violet-600 to-blue-500 text-xs font-semibold text-white shadow-md shadow-violet-950/50 hover:opacity-95 active:scale-[0.98] transform-gpu transition-[transform,opacity] duration-150 whitespace-nowrap shrink-0"
           >
             <Plus className="w-3.5 h-3.5" />
             Tune Request
@@ -666,7 +676,7 @@ export default function App() {
         <header className="lg:hidden sticky top-0 z-30 flex h-[52px] items-center justify-between gap-2 px-4 bg-[#09090D]/90 backdrop-blur-xl border-b border-white/[0.07]">
           <button
             type="button"
-            onClick={() => setActiveTab('discover')}
+            onClick={() => navigateToTab('discover')}
             className="flex items-center gap-2 whitespace-nowrap shrink-0"
           >
             <BrandLogo size="sm" />
@@ -759,7 +769,7 @@ export default function App() {
 
                         <button
                           type="button"
-                          onClick={() => setActiveTab('playlists')}
+                          onClick={() => navigateToTab('playlists')}
                           className="inline-flex h-11 items-center justify-center gap-2 px-5 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] border border-white/15 text-sm font-medium text-white transition-colors whitespace-nowrap shrink-0"
                         >
                           Browse All {playlistsWithLiveCounts.length} Playlists
@@ -977,7 +987,7 @@ export default function App() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => setActiveTab('search')}
+                          onClick={() => navigateToTab('search')}
                           className="inline-flex h-9 items-center px-3 rounded-xl bg-[#12121B] border border-white/[0.08] text-xs font-medium text-blue-400 hover:text-blue-300 hover:border-violet-500/35 whitespace-nowrap shrink-0"
                         >
                           Filter Catalog
@@ -1061,10 +1071,10 @@ export default function App() {
 
               {/* PLAYLIST DETAIL VIEW */}
               {activeTab === 'playlist-detail' && activePlaylist.playlist ? (
-                <section className="space-y-5 sm:space-y-6 gg-view-enter">
+                <section key={`detail-${selectedPlaylistId}`} className="space-y-5 sm:space-y-6 gg-view-enter">
                   <button
                     type="button"
-                    onClick={() => setActiveTab('playlists')}
+                    onClick={() => navigateToTab('playlists')}
                     className="inline-flex h-9 items-center gap-2 text-xs font-medium text-slate-400 hover:text-white transition-colors"
                   >
                     <ArrowLeft className="w-4 h-4" />
@@ -1185,7 +1195,7 @@ export default function App() {
                       ) : (
                         <button
                           type="button"
-                          onClick={() => setActiveTab('search')}
+                          onClick={() => navigateToTab('search')}
                           className="mt-3 px-4 py-2 text-xs font-semibold text-white rounded-lg bg-gradient-to-r from-violet-600 to-blue-500"
                         >
                           Discover Tracks to Add
@@ -1279,7 +1289,7 @@ export default function App() {
             </p>
             <button
               type="button"
-              onClick={() => setActiveTab('vault')}
+              onClick={() => navigateToTab('vault')}
               className="text-slate-400 hover:text-white underline underline-offset-4"
             >
               Licensing &amp; Provider Policies
@@ -1295,8 +1305,8 @@ export default function App() {
       >
         <button
           type="button"
-          onClick={() => setActiveTab('discover')}
-          className={`flex flex-col items-center justify-center h-full gap-0.5 text-[10px] font-medium transition-colors ${
+          onClick={() => navigateToTab('discover')}
+          className={`flex flex-col items-center justify-center h-full gap-0.5 text-[10px] font-medium transition-colors active:scale-95 transform-gpu ${
             activeTab === 'discover' ? 'text-violet-400' : 'text-slate-400'
           }`}
         >
@@ -1305,8 +1315,8 @@ export default function App() {
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab('playlists')}
-          className={`flex flex-col items-center justify-center h-full gap-0.5 text-[10px] font-medium transition-colors ${
+          onClick={() => navigateToTab('playlists')}
+          className={`flex flex-col items-center justify-center h-full gap-0.5 text-[10px] font-medium transition-colors active:scale-95 transform-gpu ${
             activeTab === 'playlists' || activeTab === 'playlist-detail'
               ? 'text-violet-400'
               : 'text-slate-400'
@@ -1317,8 +1327,8 @@ export default function App() {
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab('search')}
-          className={`flex flex-col items-center justify-center h-full gap-0.5 text-[10px] font-medium transition-colors ${
+          onClick={() => navigateToTab('search')}
+          className={`flex flex-col items-center justify-center h-full gap-0.5 text-[10px] font-medium transition-colors active:scale-95 transform-gpu ${
             activeTab === 'search' ? 'text-violet-400' : 'text-slate-400'
           }`}
         >

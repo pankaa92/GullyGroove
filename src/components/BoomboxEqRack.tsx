@@ -1,3 +1,5 @@
+import { memo } from 'react';
+
 interface BoomboxEqRackProps {
   side: 'left' | 'right';
   isPlaying: boolean;
@@ -5,7 +7,7 @@ interface BoomboxEqRackProps {
 
 const BAND_WIDTHS = [62, 84, 96, 74, 88, 68, 92, 78, 64, 52];
 
-export function BoomboxEqRack({ side, isPlaying }: BoomboxEqRackProps) {
+export const BoomboxEqRack = memo(function BoomboxEqRack({ side, isPlaying }: BoomboxEqRackProps) {
   const isLeft = side === 'left';
 
   return (
@@ -60,4 +62,4 @@ export function BoomboxEqRack({ side, isPlaying }: BoomboxEqRackProps) {
       </div>
     </div>
   );
-}
+});

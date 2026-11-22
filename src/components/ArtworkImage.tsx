@@ -14,7 +14,8 @@ export function ArtworkImage({
   className = 'w-full h-full object-cover',
   fallbackLabel,
 }: ArtworkImageProps) {
-  const [failed, setFailed] = useState(false);
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const failed = failedSrc === src;
 
   if (failed || !src) {
     return (
@@ -38,9 +39,10 @@ export function ArtworkImage({
       src={src}
       alt={alt}
       referrerPolicy="no-referrer"
-      onError={() => setFailed(true)}
+      onError={() => setFailedSrc(src)}
       className={className}
       loading="lazy"
+      decoding="async"
     />
   );
 }

@@ -28,7 +28,7 @@ export function MediaVaultView({
   const allManagedTracks = [...vaultTracks, ...studioTracks];
 
   return (
-    <section className="space-y-8">
+    <section className="space-y-8 gg-view-enter">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-white/[0.08] pb-6">
         <div className="space-y-1.5 max-w-2xl">

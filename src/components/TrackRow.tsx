@@ -1,5 +1,5 @@
 import { ExternalLink, Heart, Pause, Play, Plus } from 'lucide-react';
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import type { PlaylistWithStats, Track } from '../types/music';
 import { formatDuration, formatPlays } from '../utils/format';
 import { ArtworkImage } from './ArtworkImage';
@@ -17,7 +17,7 @@ interface TrackRowProps {
   showAlbum?: boolean;
 }
 
-export function TrackRow({
+export const TrackRow = memo(function TrackRow({
   track,
   index,
   isCurrent,
@@ -217,4 +217,4 @@ export function TrackRow({
       </div>
     </div>
   );
-}
+});

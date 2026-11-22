@@ -1577,7 +1577,7 @@ export function PlayerBar({
           updateMediaSessionPosition(cur, dur);
         }
       }
-    }, 200);
+    }, 100);
   }, [isPlaying, currentTrack?.id, isCurrentYouTube, getDeck, maybeStartCrossfade]);
 
   // High-resolution unthrottled playback monitor for YouTube
@@ -1649,7 +1649,7 @@ export function PlayerBar({
       } catch {
         // ignore transient calls
       }
-    }, 250);
+    }, 180);
   }, [isCurrentYouTube, isPlaying, maybeStartCrossfade]);
 
   // Background visibility & focus guard
@@ -2426,11 +2426,13 @@ export function PlayerBar({
                     </div>
                   </div>
 
-                  {/* Interactive Bajao-Inspired Waveform & Hook Scrubber */}
+                  {/* Interactive Bajao-Inspired Beat-Reactive Waveform & Hook Scrubber */}
                   <StudioWaveformScrubber
                     trackId={currentTrack.id}
                     currentTime={currentTime}
                     duration={effectiveDuration}
+                    isPlaying={isPlaying}
+                    bpm={currentTrack.bpm}
                     hookMode={hookMode}
                     hookStartSec={activeHookWindow.startSec}
                     hookEndSec={activeHookWindow.endSec}
