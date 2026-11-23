@@ -250,6 +250,9 @@ export function PlayerBar({
   const consecutiveYtErrorsRef = useRef(0);
   const userPausedRef = useRef(false);
   const prevIsPlayingRef = useRef(isPlaying);
+  const ytAwaitingPlayRef = useRef<[boolean, boolean]>([false, false]);
+  const ytAwaitingPlaySinceRef = useRef<[number, number]>([0, 0]);
+  const audioSwitchingDeckRef = useRef<[boolean, boolean]>([false, false]);
   const lastVisibilityChangeMsRef = useRef(0);
   const lastMsPosSyncRef = useRef(0);
   const lastYtMsAssertRef = useRef(0);
@@ -607,6 +610,9 @@ export function PlayerBar({
 
   const clearDeck = useCallback(
     (idx: 0 | 1) => {
+      deckTrackIdRef.current[idx] = '';
+      deckUrlRef.current[idx] = '';
+      audioSwitchingDeckRef.current[idx] = false;
       const deck = getDeck(idx);
       if (deck) {
         deck.pause();
@@ -614,8 +620,6 @@ export function PlayerBar({
         deck.removeAttribute('src');
         deck.load();
       }
-      deckTrackIdRef.current[idx] = '';
-      deckUrlRef.current[idx] = '';
     },
     [getDeck]
   );
@@ -1043,6 +1047,7 @@ export function PlayerBar({
       pendingAudioHookSeekTrackIdRef.current = startSec > 0 ? currentTrack.id : '';
       setCurrentTime(startSec);
       setDuration(currentTrack.durationSec || 0);
+      audioSwitchingDeckRef.current[activeIdx] = true;
       activeDeck.volume = mutedRef.current ? 0 : volumeRef.current;
       activeDeck.src = resolvedUrl;
       activeDeck.load();
@@ -1093,6 +1098,8 @@ export function PlayerBar({
 
       if (!track || !track.embedId) {
         ytDeckTrackIdRef.current[slotIdx] = '';
+        ytAwaitingPlayRef.current[slotIdx] = false;
+        ytAwaitingPlaySinceRef.current[slotIdx] = 0;
         if (existingPlayer && ytReadyRef.current[slotIdx]) {
           try {
             existingPlayer.pauseVideo();
@@ -1131,6 +1138,8 @@ export function PlayerBar({
         }
 
         if (!sameTrack) {
+          ytAwaitingPlayRef.current[slotIdx] = shouldAutoPlay;
+          ytAwaitingPlaySinceRef.current[slotIdx] = shouldAutoPlay ? Date.now() : 0;
           setYtBuffering(true);
           try {
             if (shouldAutoPlay && existingPlayer.loadVideoById) {
@@ -1158,6 +1167,8 @@ export function PlayerBar({
             // ignore
           }
         } else if (shouldAutoPlay) {
+          ytAwaitingPlayRef.current[slotIdx] = true;
+          ytAwaitingPlaySinceRef.current[slotIdx] = Date.now();
           try {
             existingPlayer.playVideo();
           } catch {
@@ -1271,10 +1282,13 @@ export function PlayerBar({
               }
 
               if (latestShouldPlay) {
+                ytAwaitingPlayRef.current[slotIdx] = true;
+                ytAwaitingPlaySinceRef.current[slotIdx] = Date.now();
                 event.target.playVideo();
                 keepAliveAudioRef.current?.play().catch(() => {});
                 syncMediaSessionRef.current();
               } else {
+                ytAwaitingPlayRef.current[slotIdx] = false;
                 setYtBuffering(false);
               }
             },
@@ -1285,6 +1299,7 @@ export function PlayerBar({
               const PLAYING = window.YT?.PlayerState?.PLAYING ?? 1;
               const PAUSED = window.YT?.PlayerState?.PAUSED ?? 2;
               const BUFFERING = window.YT?.PlayerState?.BUFFERING ?? 3;
+              const CUED = window.YT?.PlayerState?.CUED ?? 5;
 
               const isOutgoingDuringFade = Boolean(
                 transitionRef.current &&
@@ -1310,6 +1325,8 @@ export function PlayerBar({
               if (event.data === PLAYING) {
                 consecutiveYtErrorsRef.current = 0;
                 ytBufferingSinceRef.current = null;
+                ytAwaitingPlayRef.current[slotIdx] = false;
+                ytAwaitingPlaySinceRef.current[slotIdx] = 0;
                 setYtBuffering(false);
                 keepAliveAudioRef.current?.play().catch(() => {});
                 if (!transitionRef.current && slotIdx === activeYtDeckIdxRef.current) {
@@ -1322,7 +1339,24 @@ export function PlayerBar({
                   window.setTimeout(() => syncMediaSessionRef.current(), 350);
                   window.setTimeout(() => syncMediaSessionRef.current(), 1200);
                 }
-              } else if (event.data === PAUSED) {
+              } else if (event.data === PAUSED || event.data === CUED) {
+                const isAwaitingPlay =
+                  ytAwaitingPlayRef.current[slotIdx] &&
+                  Date.now() - ytAwaitingPlaySinceRef.current[slotIdx] < 8000;
+
+                if (isAwaitingPlay && !userPausedRef.current && isPlayingRef.current) {
+                  try {
+                    event.target.playVideo();
+                  } catch {
+                    // ignore
+                  }
+                  return;
+                }
+
+                if (event.data === CUED) {
+                  return;
+                }
+
                 ytBufferingSinceRef.current = null;
                 setYtBuffering(false);
                 const isBackgroundOrFocusLoss =
@@ -1371,6 +1405,7 @@ export function PlayerBar({
                 }
               } else if (event.data === ENDED) {
                 ytBufferingSinceRef.current = null;
+                ytAwaitingPlayRef.current[slotIdx] = false;
                 setYtBuffering(false);
                 if (isOutgoingDuringFade) {
                   finishTransition();
@@ -1394,6 +1429,7 @@ export function PlayerBar({
             },
             onError: () => {
               ytBufferingSinceRef.current = null;
+              ytAwaitingPlayRef.current[slotIdx] = false;
               setYtBuffering(false);
               const desiredTrack = ytDesiredTrackRef.current[slotIdx];
               if (!desiredTrack) return;
@@ -1515,8 +1551,14 @@ export function PlayerBar({
       const player = ytPlayersRef.current[slotIdx];
       if (!player || !ytReadyRef.current[slotIdx]) return;
       try {
-        if (isPlaying) player.playVideo();
-        else player.pauseVideo();
+        if (isPlaying) {
+          ytAwaitingPlayRef.current[slotIdx] = true;
+          ytAwaitingPlaySinceRef.current[slotIdx] = Date.now();
+          player.playVideo();
+        } else {
+          ytAwaitingPlayRef.current[slotIdx] = false;
+          player.pauseVideo();
+        }
       } catch {
         // ignore
       }
@@ -1599,6 +1641,14 @@ export function PlayerBar({
       try {
         const ytState = player.getPlayerState?.();
         if (
+          ytAwaitingPlayRef.current[activeSlot] &&
+          Date.now() - ytAwaitingPlaySinceRef.current[activeSlot] < 8000 &&
+          !userPausedRef.current &&
+          isPlayingRef.current &&
+          (ytState === 2 || ytState === 5)
+        ) {
+          player.playVideo();
+        } else if (
           !userPausedRef.current &&
           isPlayingRef.current &&
           (document.hidden || !document.hasFocus()) &&
@@ -1798,6 +1848,7 @@ export function PlayerBar({
       }
     } else {
       userPausedRef.current = true;
+      ytAwaitingPlayRef.current = [false, false];
     }
     onPlayPause();
   }, [getDeck, onPlayPause]);
@@ -1868,6 +1919,7 @@ export function PlayerBar({
       },
       onPause: () => {
         userPausedRef.current = true;
+        ytAwaitingPlayRef.current = [false, false];
         keepAliveAudioRef.current?.pause();
         if (currentTrackRef.current?.playbackRights === 'embed-only') {
           ([0, 1] as const).forEach((slotIdx) => {
@@ -1978,6 +2030,7 @@ export function PlayerBar({
   };
 
   const handleDeckError = (deckIdx: 0 | 1) => {
+    audioSwitchingDeckRef.current[deckIdx] = false;
     if (!deckTrackIdRef.current[deckIdx]) return;
     if (deckIdx !== activeDeckIdxRef.current) return;
     if (currentTrackRef.current?.streamUrl && !isCurrentYouTube) {
@@ -1987,6 +2040,7 @@ export function PlayerBar({
   };
 
   const handleDeckPause = (deckIdx: 0 | 1, deckEl: HTMLAudioElement) => {
+    if (audioSwitchingDeckRef.current[deckIdx]) return;
     if (deckIdx !== activeDeckIdxRef.current) return;
     if (!deckTrackIdRef.current[deckIdx] || deckEl.ended) return;
 
@@ -2034,6 +2088,9 @@ export function PlayerBar({
         playsInline
         onTimeUpdate={(e) => handleDeckTimeUpdate(0, e.currentTarget)}
         onLoadedMetadata={(e) => handleDeckLoadedMetadata(0, e.currentTarget)}
+        onPlaying={() => {
+          audioSwitchingDeckRef.current[0] = false;
+        }}
         onPause={(e) => handleDeckPause(0, e.currentTarget)}
         onEnded={() => handleDeckEnded(0)}
         onError={() => handleDeckError(0)}
@@ -2044,6 +2101,9 @@ export function PlayerBar({
         playsInline
         onTimeUpdate={(e) => handleDeckTimeUpdate(1, e.currentTarget)}
         onLoadedMetadata={(e) => handleDeckLoadedMetadata(1, e.currentTarget)}
+        onPlaying={() => {
+          audioSwitchingDeckRef.current[1] = false;
+        }}
         onPause={(e) => handleDeckPause(1, e.currentTarget)}
         onEnded={() => handleDeckEnded(1)}
         onError={() => handleDeckError(1)}
@@ -2275,6 +2335,7 @@ export function PlayerBar({
                       type="button"
                       onClick={() => {
                         userPausedRef.current = true;
+                        ytAwaitingPlayRef.current = [false, false];
                         cancelTransition(true);
                         onClosePlayer();
                       }}

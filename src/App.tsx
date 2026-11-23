@@ -485,11 +485,6 @@ export default function App() {
     languageFilter,
   ]);
 
-  const directStreamTracks = useMemo(
-    () => tracks.filter((t) => Boolean(t.streamUrl)),
-    [tracks]
-  );
-
   const vaultTracks = useMemo(() => tracks.filter((t) => t.isUserAdded), [tracks]);
   const studioTracks = useMemo(() => tracks.filter((t) => !t.isUserAdded), [tracks]);
 
@@ -499,7 +494,7 @@ export default function App() {
       : activeTab === 'playlists'
         ? 'Curated Playlists'
         : activeTab === 'search'
-          ? 'Search & Filter'
+          ? 'Search'
           : activeTab === 'vault'
             ? 'Media Vault'
             : `Playlists / ${activePlaylist.playlist?.title || 'Playlist'}`;
@@ -956,59 +951,6 @@ export default function App() {
                             {voice.subtitle}
                           </span>
                         </button>
-                      ))}
-                    </div>
-                  </section>
-
-                  {/* Instant Ad-Free Direct Streams */}
-                  <section className="space-y-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/[0.08] pb-3">
-                      <div>
-                        <h2 className="font-display text-xl font-bold text-white">
-                          Instant Ad-Free Direct Streams
-                        </h2>
-                        <p className="text-xs text-slate-400 mt-0.5">
-                          Zero pre-roll video ads, full 8s crossfade, and background lock-screen playback.
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2.5 self-start sm:self-auto">
-                        <button
-                          type="button"
-                          disabled={directStreamTracks.length === 0}
-                          onClick={() => {
-                            if (directStreamTracks.length > 0) {
-                              playTrackFromList(directStreamTracks[0], directStreamTracks);
-                            }
-                          }}
-                          className="inline-flex h-9 items-center gap-1.5 px-3.5 rounded-xl bg-gradient-to-r from-violet-600 to-blue-500 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-40 whitespace-nowrap shrink-0"
-                        >
-                          <Play className="w-3.5 h-3.5 fill-current" />
-                          Play All Ad-Free
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => navigateToTab('search')}
-                          className="inline-flex h-9 items-center px-3 rounded-xl bg-[#12121B] border border-white/[0.08] text-xs font-medium text-blue-400 hover:text-blue-300 hover:border-violet-500/35 whitespace-nowrap shrink-0"
-                        >
-                          Filter Catalog
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="divide-y divide-white/[0.04]">
-                      {directStreamTracks.slice(0, 8).map((track, idx) => (
-                        <TrackRow
-                          key={track.id}
-                          track={track}
-                          index={idx}
-                          isCurrent={currentTrack?.id === track.id}
-                          isPlaying={isPlaying}
-                          isFavorite={favorites.has(track.id)}
-                          playlists={playlistsWithLiveCounts}
-                          onPlayToggle={(t) => playTrackFromList(t, directStreamTracks)}
-                          onToggleFavorite={handleToggleFavorite}
-                          onAddToPlaylist={handleAddToPlaylist}
-                        />
                       ))}
                     </div>
                   </section>
