@@ -182,6 +182,13 @@ interface PlayerBarProps {
   onSetPlayingState: (playing: boolean) => void;
   onClosePlayer?: () => void;
   onOpenTuneRequest?: () => void;
+  volume?: number;
+  muted?: boolean;
+  hookMode?: boolean;
+  audioDucking?: boolean;
+  onVolumeChange?: (volume01: number) => void;
+  onMutedChange?: (muted: boolean) => void;
+  onHookModeChange?: (hookMode: boolean) => void;
 }
 
 export function PlayerBar({
@@ -210,6 +217,13 @@ export function PlayerBar({
   onSetPlayingState,
   onClosePlayer,
   onOpenTuneRequest,
+  volume: controlledVolume,
+  muted: controlledMuted,
+  hookMode: controlledHookMode,
+  audioDucking = false,
+  onVolumeChange,
+  onMutedChange,
+  onHookModeChange,
 }: PlayerBarProps) {
   // Dual HTML5 Audio Decks + Background Audio-Focus Keep-Alive Deck
   const deck0Ref = useRef<HTMLAudioElement | null>(null);
@@ -261,8 +275,31 @@ export function PlayerBar({
 
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [volume, setVolume] = useState(1);
-  const [muted, setMuted] = useState(false);
+  const [internalVolume, setInternalVolume] = useState(1);
+  const [internalMuted, setInternalMuted] = useState(false);
+  const volume = controlledVolume ?? internalVolume;
+  const muted = controlledMuted ?? internalMuted;
+  const effectiveMasterGain = muted ? 0 : volume * (audioDucking ? 0.18 : 1);
+
+  const setVolume = useCallback(
+    (nextVol: number) => {
+      const clamped = Math.max(0, Math.min(1, nextVol));
+      setInternalVolume(clamped);
+      onVolumeChange?.(clamped);
+    },
+    [onVolumeChange]
+  );
+
+  const setMuted = useCallback(
+    (updater: boolean | ((prev: boolean) => boolean)) => {
+      const next =
+        typeof updater === 'function' ? updater(muted) : updater;
+      setInternalMuted(next);
+      onMutedChange?.(next);
+    },
+    [muted, onMutedChange]
+  );
+
   const [minimizedDrawerTab, setMinimizedDrawerTab] =
     useState<ConsoleDrawerTab>(null);
   const [consoleDrawerTab, setConsoleDrawerTab] = useState<ConsoleDrawerTab>(null);
@@ -278,7 +315,8 @@ export function PlayerBar({
   const [crossfadeStatus, setCrossfadeStatus] = useState<CrossfadeStatus | null>(null);
 
   // Hook-based playback state (Auto-Cut Chorus Drop vs Full Song)
-  const [hookMode, setHookMode] = useState(false);
+  const [internalHookMode, setInternalHookMode] = useState(false);
+  const hookMode = controlledHookMode ?? internalHookMode;
   const [customHooks, setCustomHooks] = useState<Record<string, HookRange>>(() =>
     loadCustomHooks()
   );
@@ -294,6 +332,8 @@ export function PlayerBar({
   volumeRef.current = volume;
   const mutedRef = useRef(muted);
   mutedRef.current = muted;
+  const effectiveGainRef = useRef(effectiveMasterGain);
+  effectiveGainRef.current = effectiveMasterGain;
   const hookModeRef = useRef(hookMode);
   hookModeRef.current = hookMode;
   const customHooksRef = useRef(customHooks);
@@ -628,7 +668,7 @@ export function PlayerBar({
     const player = ytPlayersRef.current[idx];
     if (!player || !ytReadyRef.current[idx]) return;
     try {
-      if (mutedRef.current || volumeRef.current === 0) {
+      if (mutedRef.current || volumeRef.current === 0 || gain01 <= 0) {
         player.mute();
       } else {
         player.unMute();
@@ -671,10 +711,10 @@ export function PlayerBar({
       if (session.outgoingKind === 'audio') {
         const outDeck = getDeck(session.outgoingAudioDeckIdx);
         if (outDeck) {
-          outDeck.volume = mutedRef.current ? 0 : volumeRef.current;
+          outDeck.volume = effectiveGainRef.current;
         }
       } else {
-        setYtDeckVolume(session.outgoingYtDeckIdx, volumeRef.current);
+        setYtDeckVolume(session.outgoingYtDeckIdx, effectiveGainRef.current);
       }
     },
     [clearDeck, getDeck, setYtDeckVolume]
@@ -699,7 +739,7 @@ export function PlayerBar({
       activeDeckIdxRef.current = session.incomingAudioDeckIdx;
       const inDeck = getDeck(session.incomingAudioDeckIdx);
       if (inDeck) {
-        inDeck.volume = mutedRef.current ? 0 : volumeRef.current;
+        inDeck.volume = effectiveGainRef.current;
         setCurrentTime(inDeck.currentTime || 0);
         if (Number.isFinite(inDeck.duration) && inDeck.duration > 0) {
           setDuration(inDeck.duration);
@@ -714,7 +754,7 @@ export function PlayerBar({
       activeYtDeckIdxRef.current = inYt;
       setActiveYtDeckIdx(inYt);
       ytStartZeroRef.current[inYt] = false;
-      setYtDeckVolume(inYt, volumeRef.current);
+      setYtDeckVolume(inYt, effectiveGainRef.current);
 
       const inPlayer = ytPlayersRef.current[inYt];
       if (inPlayer && ytReadyRef.current[inYt]) {
@@ -748,7 +788,7 @@ export function PlayerBar({
 
   const applyFadeVolumes = useCallback(
     (session: TransitionSession, progress: number) => {
-      const master = mutedRef.current ? 0 : volumeRef.current;
+      const master = effectiveGainRef.current;
       const outGain = Math.cos(progress * Math.PI * 0.5);
       const inGain = Math.sin(progress * Math.PI * 0.5);
 
@@ -1048,7 +1088,7 @@ export function PlayerBar({
       setCurrentTime(startSec);
       setDuration(currentTrack.durationSec || 0);
       audioSwitchingDeckRef.current[activeIdx] = true;
-      activeDeck.volume = mutedRef.current ? 0 : volumeRef.current;
+      activeDeck.volume = effectiveGainRef.current;
       activeDeck.src = resolvedUrl;
       activeDeck.load();
     }
@@ -1134,7 +1174,7 @@ export function PlayerBar({
             // ignore
           }
         } else {
-          setYtDeckVolume(slotIdx, volumeRef.current);
+          setYtDeckVolume(slotIdx, effectiveGainRef.current);
         }
 
         if (!sameTrack) {
@@ -1254,7 +1294,7 @@ export function PlayerBar({
                 event.target.unMute();
                 event.target.setVolume(0);
               } else {
-                setYtDeckVolume(slotIdx, volumeRef.current);
+                setYtDeckVolume(slotIdx, effectiveGainRef.current);
               }
 
               if (
@@ -1764,7 +1804,7 @@ export function PlayerBar({
     };
   }, [finishTransition, getDeck]);
 
-  // Sync volume & mute to active deck
+  // Sync volume, mute & voice ducking to active deck
   useEffect(() => {
     if (transitionRef.current) {
       const s = transitionRef.current;
@@ -1775,11 +1815,11 @@ export function PlayerBar({
 
     const activeDeck = getDeck(activeDeckIdxRef.current);
     if (activeDeck) {
-      activeDeck.volume = muted ? 0 : volume;
+      activeDeck.volume = effectiveMasterGain;
     }
 
-    setYtDeckVolume(activeYtDeckIdxRef.current, volume);
-  }, [volume, muted, hasAnyYtDeck, applyFadeVolumes, getDeck, setYtDeckVolume]);
+    setYtDeckVolume(activeYtDeckIdxRef.current, effectiveMasterGain);
+  }, [volume, muted, audioDucking, effectiveMasterGain, hasAnyYtDeck, applyFadeVolumes, getDeck, setYtDeckVolume]);
 
   // Cleanup crossfade ticker on unmount
   useEffect(() => {
@@ -1853,11 +1893,11 @@ export function PlayerBar({
     onPlayPause();
   }, [getDeck, onPlayPause]);
 
-  const handleToggleHookMode = useCallback(() => {
-    setHookMode((prev) => {
-      const next = !prev;
+  const prevHookModeRef = useRef(hookMode);
+  useEffect(() => {
+    if (hookMode && !prevHookModeRef.current) {
       const track = currentTrackRef.current;
-      if (next && track) {
+      if (track) {
         const dur = durationRef.current || track.durationSec || 218;
         const hook = getHookForTrack(track, dur);
         if (
@@ -1867,9 +1907,15 @@ export function PlayerBar({
           handleSeekRef.current(hook.startSec);
         }
       }
-      return next;
-    });
-  }, [getHookForTrack]);
+    }
+    prevHookModeRef.current = hookMode;
+  }, [hookMode, getHookForTrack]);
+
+  const handleToggleHookMode = useCallback(() => {
+    const next = !hookMode;
+    setInternalHookMode(next);
+    onHookModeChange?.(next);
+  }, [hookMode, onHookModeChange]);
 
   const handleUpdateHook = useCallback(
     (startSec: number, endSec: number) => {

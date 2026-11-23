@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AddTrackModal } from './components/AddTrackModal';
 import { ArtworkImage } from './components/ArtworkImage';
 import { BrandLogo } from './components/BrandLogo';
+import { GroovyAssistant } from './components/GroovyAssistant';
 import { MediaVaultView } from './components/MediaVaultView';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { PlayerBar, type RepeatMode } from './components/PlayerBar';
@@ -140,6 +141,10 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [shuffle, setShuffle] = useState(false);
   const [repeatMode, setRepeatMode] = useState<RepeatMode>('all');
+  const [volume, setVolume] = useState(1);
+  const [muted, setMuted] = useState(false);
+  const [hookMode, setHookMode] = useState(false);
+  const [groovyDucking, setGroovyDucking] = useState(false);
   const [metadataTrack, setMetadataTrack] = useState<Track | null>(null);
   const [studioConsoleOpen, setStudioConsoleOpen] = useState(false);
   const [recentlyPlayed, setRecentlyPlayed] = useState<Track[]>(() => {
@@ -1309,11 +1314,48 @@ export default function App() {
         onPlaybackEnded={handleNext}
         onSetPlayingState={setIsPlaying}
         onOpenTuneRequest={() => setRequestModalOpen(true)}
+        volume={volume}
+        muted={muted}
+        hookMode={hookMode}
+        audioDucking={groovyDucking}
+        onVolumeChange={setVolume}
+        onMutedChange={setMuted}
+        onHookModeChange={setHookMode}
         onClosePlayer={() => {
           setIsPlaying(false);
           setStudioConsoleOpen(false);
           setCurrentTrack(null);
         }}
+      />
+
+      {/* Groovy Floating Alexa-Style Voice Assistant */}
+      <GroovyAssistant
+        playlists={playlistsWithLiveCounts}
+        tracks={tracks}
+        currentTrack={currentTrack}
+        isPlaying={isPlaying}
+        shuffle={shuffle}
+        hookMode={hookMode}
+        volume={volume}
+        muted={muted}
+        studioConsoleOpen={studioConsoleOpen}
+        favorites={favorites}
+        onPlayTrack={playTrackFromList}
+        onPlayPlaylist={quickPlayPlaylist}
+        onSetPlaying={setIsPlaying}
+        onNext={handleNext}
+        onPrev={handlePrev}
+        onToggleShuffle={(value) =>
+          setShuffle((prev) => (typeof value === 'boolean' ? value : !prev))
+        }
+        onSetRepeatMode={setRepeatMode}
+        onSetHookMode={setHookMode}
+        onSetVolume={setVolume}
+        onSetMuted={setMuted}
+        onToggleFavorite={handleToggleFavorite}
+        onNavigateTab={(tab) => navigateToTab(tab)}
+        onSetStudioConsoleOpen={setStudioConsoleOpen}
+        onDuckAudioChange={setGroovyDucking}
       />
 
       {/* Register Authorised Media Track Modal */}

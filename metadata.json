@@ -1,7 +1,7 @@
 {
   "name": "GullyGroove",
   "description": "Discover Music. Feel Every Beat. A modern Indian and international music streaming and discovery platform with modular licensed audio integration.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["microphone"],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ]

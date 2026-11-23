@@ -6,6 +6,11 @@ import path from 'path';
 import { Readable } from 'stream';
 import { fileURLToPath } from 'url';
 import { generateTrackWav } from './src/server/audioSynth';
+import {
+  getGeminiClient,
+  interpretGroovyWithGemini,
+  synthesizeGroovySpeechWav,
+} from './src/server/geminiClient';
 import { catalogService } from './src/server/providers/catalogService';
 import type { NewAuthorisedTrackInput } from './src/types/music';
 
@@ -95,6 +100,89 @@ async function startServer() {
   // Modular Music Provider Statuses & Policies
   app.get('/api/providers', (_req, res) => {
     res.json({ providers: catalogService.getProviderStatuses() });
+  });
+
+  // Groovy Smart Voice Intent Interpretation (Gemini 4 Hydrogen)
+  app.post('/api/groovy/interpret', async (req, res) => {
+    const body = req.body as {
+      transcript?: string;
+      playlists?: Array<{ id: string; title: string; mood: string }>;
+      currentTrack?: { title: string; artist: string } | null;
+    };
+    const transcript = typeof body.transcript === 'string' ? body.transcript.trim() : '';
+    if (!transcript) {
+      res.status(400).json({ error: 'Transcript is required.' });
+      return;
+    }
+
+    if (!getGeminiClient()) {
+      res.status(503).json({ available: false, error: 'GEMINI_API_KEY not configured.' });
+      return;
+    }
+
+    try {
+      const playlists =
+        Array.isArray(body.playlists) && body.playlists.length > 0
+          ? body.playlists
+          : catalogService.getPlaylists().map((p) => ({
+              id: p.id,
+              title: p.title,
+              mood: p.mood,
+            }));
+      const result = await interpretGroovyWithGemini({
+        transcript,
+        playlists,
+        currentTrack: body.currentTrack || null,
+      });
+      if (!result) {
+        res.status(502).json({ error: 'Empty interpretation from Gemini.' });
+        return;
+      }
+      res.json({ available: true, result });
+    } catch (err: unknown) {
+      const status =
+        typeof (err as { status?: number })?.status === 'number'
+          ? (err as { status: number }).status
+          : 500;
+      const message =
+        err instanceof Error ? err.message : 'Failed to interpret voice command.';
+      res.status(status).json({ error: message });
+    }
+  });
+
+  // Groovy Natural Female Neural TTS (Gemini 3.8 Flash Lite TTS -> WAV)
+  app.post('/api/groovy/tts', async (req, res) => {
+    const body = req.body as { text?: string };
+    const text = typeof body.text === 'string' ? body.text.trim() : '';
+    if (!text) {
+      res.status(400).json({ error: 'Text is required.' });
+      return;
+    }
+
+    if (!getGeminiClient()) {
+      res.status(503).json({ available: false, error: 'GEMINI_API_KEY not configured.' });
+      return;
+    }
+
+    try {
+      const wavBuffer = await synthesizeGroovySpeechWav(text);
+      if (!wavBuffer) {
+        res.status(502).json({ error: 'Unable to synthesize speech audio.' });
+        return;
+      }
+      res.setHeader('Content-Type', 'audio/wav');
+      res.setHeader('Content-Length', wavBuffer.length);
+      res.setHeader('Cache-Control', 'no-store');
+      res.send(wavBuffer);
+    } catch (err: unknown) {
+      const status =
+        typeof (err as { status?: number })?.status === 'number'
+          ? (err as { status: number }).status
+          : 500;
+      const message =
+        err instanceof Error ? err.message : 'Failed to synthesize voice reply.';
+      res.status(status).json({ error: message });
+    }
   });
 
   // Register a new authorised royalty-free / CC / Public Domain track in the Media Vault
