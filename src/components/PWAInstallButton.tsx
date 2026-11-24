@@ -164,9 +164,9 @@ export function PWAInstallButton({ variant = 'header' }: PWAInstallButtonProps) 
         type="button"
         onClick={handleInstallClick}
         aria-label="Install App"
-        className={`${hideOnDesktopClass} inline-flex h-9 items-center gap-1.5 px-2.5 sm:px-3.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] border border-violet-400/35 text-xs font-semibold text-slate-100 transition-all whitespace-nowrap shrink-0`}
+        className={`${hideOnDesktopClass} inline-flex h-7 sm:h-8 items-center gap-1 px-2 sm:px-2.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.14] border border-violet-400/35 text-[10.5px] sm:text-[11px] font-semibold text-slate-100 transition-all whitespace-nowrap shrink-0`}
       >
-        <Download className="w-3.5 h-3.5 text-violet-300" />
+        <Download className="w-3 h-3 text-violet-300" />
         <span>Install App</span>
       </button>
 

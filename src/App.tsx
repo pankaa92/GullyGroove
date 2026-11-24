@@ -7,6 +7,7 @@ import {
   Play,
   Plus,
   Search,
+  Settings,
   Shuffle,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -21,6 +22,11 @@ import { PlaylistCard } from './components/PlaylistCard';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { RequestSongModal } from './components/RequestSongModal';
 import { SearchExploreView } from './components/SearchExploreView';
+import {
+  SettingsModal,
+  type AppTheme,
+  type NotificationSettings,
+} from './components/SettingsModal';
 import { TrackRow } from './components/TrackRow';
 import { COVER_ASSETS } from './data/catalog';
 import {
@@ -172,6 +178,92 @@ export default function App() {
   });
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [requestModalOpen, setRequestModalOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // Theme (always defaults to Dark) & Notification preferences
+  const [theme, setTheme] = useState<AppTheme>(() => {
+    try {
+      return localStorage.getItem('gg_theme_v1') === 'light' ? 'light' : 'dark';
+    } catch {
+      return 'dark';
+    }
+  });
+  const [notifications, setNotifications] = useState<NotificationSettings>(() => {
+    try {
+      const saved = localStorage.getItem('gg_notifications_v1');
+      if (saved) {
+        const parsed = JSON.parse(saved) as Partial<NotificationSettings>;
+        return {
+          nowPlayingAlerts: Boolean(parsed.nowPlayingAlerts),
+          curatedPlaylistDrops: parsed.curatedPlaylistDrops ?? true,
+          groovyVoiceTips: parsed.groovyVoiceTips ?? true,
+        };
+      }
+    } catch {
+      // ignore
+    }
+    return {
+      nowPlayingAlerts: false,
+      curatedPlaylistDrops: true,
+      groovyVoiceTips: true,
+    };
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('gg_theme_v1', theme);
+    } catch {
+      // ignore
+    }
+    const root = document.documentElement;
+    if (theme === 'light') {
+      root.classList.remove('dark');
+      root.classList.add('light');
+      document.body.style.backgroundColor = '#F4F5FA';
+      document.body.style.color = '#0F172A';
+    } else {
+      root.classList.remove('light');
+      root.classList.add('dark');
+      document.body.style.backgroundColor = '#09090D';
+      document.body.style.color = '#F4F4F5';
+    }
+    const themeMeta = document.querySelector('meta[name="theme-color"]');
+    if (themeMeta) {
+      themeMeta.setAttribute('content', theme === 'light' ? '#F4F5FA' : '#09090D');
+    }
+  }, [theme]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('gg_notifications_v1', JSON.stringify(notifications));
+    } catch {
+      // ignore
+    }
+  }, [notifications]);
+
+  useEffect(() => {
+    if (
+      !notifications.nowPlayingAlerts ||
+      !isPlaying ||
+      !currentTrack ||
+      typeof window === 'undefined' ||
+      !('Notification' in window) ||
+      window.Notification.permission !== 'granted' ||
+      !document.hidden
+    ) {
+      return;
+    }
+    try {
+      const notif = new window.Notification(`Now Playing: ${currentTrack.title}`, {
+        body: currentTrack.artist,
+        icon: '/pwa-192x192.png',
+        silent: true,
+      });
+      window.setTimeout(() => notif.close(), 3500);
+    } catch {
+      // ignore notification errors
+    }
+  }, [currentTrack?.id, isPlaying, notifications.nowPlayingAlerts]);
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
@@ -661,40 +753,59 @@ export default function App() {
             </button>
           </nav>
 
-          {/* Zone 3: Single Primary Action */}
-          <button
-            type="button"
-            onClick={() => setRequestModalOpen(true)}
-            className="inline-flex h-9 items-center gap-1.5 px-4 rounded-xl bg-gradient-to-r from-violet-600 to-blue-500 text-xs font-semibold text-white shadow-md shadow-violet-950/50 hover:opacity-95 active:scale-[0.98] transform-gpu transition-[transform,opacity] duration-150 whitespace-nowrap shrink-0"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Tune Request
-          </button>
+          {/* Zone 3: Compact Tune Request + Top-Right Settings */}
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setRequestModalOpen(true)}
+              className="inline-flex h-8 items-center gap-1 px-3 rounded-lg bg-gradient-to-r from-violet-600 to-blue-500 text-[11px] font-semibold text-white shadow-md shadow-violet-950/40 hover:opacity-95 active:scale-[0.98] transform-gpu transition-[transform,opacity] duration-150 whitespace-nowrap shrink-0"
+            >
+              <Plus className="w-3 h-3" />
+              <span>Tune Request</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSettingsOpen(true)}
+              aria-label="Open Settings"
+              title="Settings"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-slate-200 hover:text-white transition-colors shrink-0"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+          </div>
         </header>
 
         {/* Mobile & Tablet Compact Sticky Top Bar (52px) */}
-        <header className="lg:hidden sticky top-0 z-30 flex h-[52px] items-center justify-between gap-2 px-4 bg-[#09090D]/90 backdrop-blur-xl border-b border-white/[0.07]">
+        <header className="lg:hidden sticky top-0 z-30 flex h-[52px] items-center justify-between gap-2 px-3 sm:px-4 bg-[#09090D]/90 backdrop-blur-xl border-b border-white/[0.07]">
           <button
             type="button"
             onClick={() => navigateToTab('discover')}
-            className="flex items-center gap-2 whitespace-nowrap shrink-0"
+            className="flex items-center gap-1.5 sm:gap-2 whitespace-nowrap shrink-0 min-w-0"
           >
             <BrandLogo size="sm" />
-            <span className="font-display text-base font-bold text-white">
+            <span className="font-display text-[15px] sm:text-base font-bold text-white truncate">
               GullyGroove
             </span>
           </button>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0">
             <PWAInstallButton variant="header" />
             <button
               type="button"
               onClick={() => setRequestModalOpen(true)}
               aria-label="Tune Request"
-              className="inline-flex h-9 items-center gap-1 px-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-blue-500 text-xs font-semibold text-white shadow-sm hover:opacity-95 whitespace-nowrap shrink-0"
+              className="inline-flex h-7 sm:h-8 items-center gap-1 px-2 sm:px-2.5 rounded-lg bg-gradient-to-r from-violet-600 to-blue-500 text-[10.5px] sm:text-[11px] font-semibold text-white shadow-sm hover:opacity-95 whitespace-nowrap shrink-0"
             >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Tune Request</span>
+              <span>♫ Request</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSettingsOpen(true)}
+              aria-label="Open Settings"
+              title="Settings"
+              className="inline-flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-lg bg-white/[0.08] hover:bg-white/[0.14] border border-white/10 text-slate-200 hover:text-white transition-colors shrink-0"
+            >
+              <Settings className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>
           </div>
         </header>
@@ -736,7 +847,7 @@ export default function App() {
               {activeTab === 'discover' ? (
                 <div className="space-y-8 sm:space-y-10 gg-view-enter">
                   {/* Hero Stage Banner */}
-                  <section className="relative overflow-hidden rounded-2xl border border-violet-500/20 bg-[#101018] shadow-[0_24px_60px_-28px_rgba(124,58,237,0.45)]">
+                  <section className="gg-keep-dark relative overflow-hidden rounded-2xl border border-violet-500/20 bg-[#101018] shadow-[0_24px_60px_-28px_rgba(124,58,237,0.45)]">
                     <div className="absolute inset-0">
                       <ArtworkImage
                         src={COVER_ASSETS.heroStage}
@@ -1370,6 +1481,16 @@ export default function App() {
       <RequestSongModal
         open={requestModalOpen}
         onClose={() => setRequestModalOpen(false)}
+      />
+
+      {/* Settings Modal (Theme Dark/Light, Notifications, About Groovy) */}
+      <SettingsModal
+        open={settingsOpen}
+        theme={theme}
+        notifications={notifications}
+        onChangeTheme={setTheme}
+        onChangeNotifications={setNotifications}
+        onClose={() => setSettingsOpen(false)}
       />
 
       <OfflineIndicator />

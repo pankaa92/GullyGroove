@@ -1473,7 +1473,7 @@ export function GroovyAssistant({
         onClick={handleFloatingMicClick}
         aria-label="Ask Groovy voice assistant"
         title='Tap to talk to Groovy (auto-pauses music) · Alt+G'
-        className={`pointer-events-auto group relative flex h-14 w-14 sm:h-[60px] sm:w-[60px] items-center justify-center rounded-full bg-[#131324] text-white shadow-[0_12px_34px_-6px_rgba(124,58,237,0.9)] border-2 transition-transform duration-150 hover:scale-105 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${
+        className={`gg-keep-dark pointer-events-auto group relative flex h-14 w-14 sm:h-[60px] sm:w-[60px] items-center justify-center rounded-full bg-[#131324] text-white shadow-[0_12px_34px_-6px_rgba(124,58,237,0.9)] border-2 transition-transform duration-150 hover:scale-105 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${
           isListeningNow
             ? 'border-blue-400 ring-4 ring-blue-400/35'
             : phase === 'speaking'

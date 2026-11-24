@@ -257,3 +257,188 @@ input[type='range'].gg-dual-range::-moz-range-thumb {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ============================================================================
+   LIGHT THEME OVERRIDES (Dark remains default via html.dark)
+   ============================================================================ */
+
+html.light,
+html.light body {
+  background-color: #f4f5fa;
+  color: #0f172a;
+}
+
+html.light .gg-studio-ambient {
+  background-image:
+    radial-gradient(62% 45% at 18% 0%, rgba(124, 58, 237, 0.09) 0%, rgba(124, 58, 237, 0) 70%),
+    radial-gradient(48% 40% at 88% 4%, rgba(59, 130, 246, 0.08) 0%, rgba(59, 130, 246, 0) 70%);
+}
+
+html.light ::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.18);
+}
+
+html.light ::-webkit-scrollbar-thumb:hover {
+  background: rgba(124, 58, 237, 0.45);
+}
+
+/* Canvas & Shell Surfaces */
+html.light [class*="bg-[#09090D]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-[#07070B]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-[#06060B]"]:not(.gg-keep-dark):not(.gg-keep-dark *) {
+  background-color: #f4f5fa;
+}
+
+html.light [class*="bg-[#09090D]/85"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-[#09090D]/90"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-[#0B0B11]/95"]:not(.gg-keep-dark):not(.gg-keep-dark *) {
+  background-color: rgba(255, 255, 255, 0.9);
+}
+
+html.light [class*="bg-[#06060B]/88"]:not(.gg-keep-dark):not(.gg-keep-dark *) {
+  background-color: rgba(241, 245, 249, 0.88);
+}
+
+/* Primary Cards, Panels, Modals, Sidebars */
+html.light [class*="bg-[#101017]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-[#101018]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-[#10101A]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-[#11111A]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-[#11111B]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-[#11111C]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-[#12121A]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-[#12121B]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-[#161621]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-[#161622]"]:not(.gg-keep-dark):not(.gg-keep-dark *) {
+  background-color: #ffffff;
+}
+
+html.light [class*="bg-[#11111A]/95"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-[#11111B]/95"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-[#10101A]/95"]:not(.gg-keep-dark):not(.gg-keep-dark *) {
+  background-color: rgba(255, 255, 255, 0.96);
+}
+
+/* Inner Wells, Inputs, Artwork Placeholders */
+html.light [class*="bg-[#06060C]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-[#09090F]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-[#090910]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-[#0A0A12]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-[#0B0B13]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-[#0D0D14]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-[#131324]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-[#141422]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-[#141426]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-[#181822]"]:not(.gg-keep-dark):not(.gg-keep-dark *) {
+  background-color: #eef1f7;
+}
+
+html.light [class*="hover:bg-[#191926]"]:not(.gg-keep-dark):hover {
+  background-color: #f1f0ff;
+}
+
+/* Subtle White-Translucent Chips & Hover Surfaces */
+html.light [class*="bg-white/[0.03]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-white/[0.04]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-white/[0.05]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-white/[0.06]"]:not(.gg-keep-dark):not(.gg-keep-dark *) {
+  background-color: rgba(15, 23, 42, 0.045);
+}
+
+html.light [class*="bg-white/[0.07]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-white/[0.08]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-white/10"]:not(.gg-keep-dark):not(.gg-keep-dark *) {
+  background-color: rgba(15, 23, 42, 0.08);
+}
+
+html.light [class*="bg-white/[0.12]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-white/[0.13]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-white/[0.14]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-white/[0.15]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-white/20"]:not(.gg-keep-dark):not(.gg-keep-dark *) {
+  background-color: rgba(15, 23, 42, 0.16);
+}
+
+html.light [class*="hover:bg-white/"]:not(.gg-keep-dark):not(.gg-keep-dark *):hover {
+  background-color: rgba(124, 58, 237, 0.1);
+}
+
+/* Dark Gradient Headers / Banners (non-hero) */
+html.light [class*="from-violet-950"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="from-[#131320]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="from-[#131122]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="from-[#1C1C2B]"]:not(.gg-keep-dark):not(.gg-keep-dark *) {
+  background-image: linear-gradient(135deg, rgba(237, 233, 254, 0.85), #ffffff, rgba(219, 234, 254, 0.72));
+}
+
+/* Borders & Dividers */
+html.light [class*="border-white/"]:not(.gg-keep-dark):not(.gg-keep-dark *) {
+  border-color: rgba(15, 23, 42, 0.1);
+}
+
+html.light [class*="divide-white/"]:not(.gg-keep-dark):not(.gg-keep-dark *) > :not(:last-child) {
+  border-color: rgba(15, 23, 42, 0.08);
+}
+
+/* Typography Hierarchy */
+html.light .text-white:not(.gg-keep-dark):not(.gg-keep-dark *):not([class*="from-violet-600 "]):not([class*="from-violet-600/90"]):not([class*="from-violet-500 "]):not([class*="from-blue-500 "]):not([class*="bg-blue-500"]):not([class*="bg-emerald-500"]):not([class*="bg-red-500"]),
+html.light .text-slate-100:not(.gg-keep-dark):not(.gg-keep-dark *):not([class*="from-violet-600 "]),
+html.light .text-slate-200:not(.gg-keep-dark):not(.gg-keep-dark *):not([class*="from-violet-600 "]) {
+  color: #0f172a;
+}
+
+html.light .text-slate-300:not(.gg-keep-dark):not(.gg-keep-dark *) {
+  color: #334155;
+}
+
+html.light .text-slate-400:not(.gg-keep-dark):not(.gg-keep-dark *) {
+  color: #475569;
+}
+
+html.light .text-slate-500:not(.gg-keep-dark):not(.gg-keep-dark *) {
+  color: #64748b;
+}
+
+html.light .text-blue-300:not(.gg-keep-dark):not(.gg-keep-dark *) {
+  color: #2563eb;
+}
+
+html.light .text-violet-200:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light .text-violet-300:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="text-violet-200"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="text-violet-300"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light .text-violet-400:not(.gg-keep-dark):not(.gg-keep-dark *) {
+  color: #6d28d9;
+}
+
+html.light .text-amber-300:not(.gg-keep-dark):not(.gg-keep-dark *) {
+  color: #b45309;
+}
+
+html.light .text-emerald-300:not(.gg-keep-dark):not(.gg-keep-dark *) {
+  color: #047857;
+}
+
+/* Active track gradient title legible on light cards */
+html.light .from-violet-300.to-blue-300.bg-clip-text {
+  background-image: linear-gradient(to right, #6d28d9, #2563eb);
+}
+
+/* Keep solid gradient buttons & active switches crisp white */
+html.light [class*="from-violet-600 "] .text-white,
+html.light [class*="from-violet-600/90"] .text-white,
+html.light button[class*="from-violet-600"]:not([class*="from-violet-600/2"]):not([class*="from-violet-600/3"]):not([class*="from-violet-600/1"]),
+html.light a[class*="from-violet-600"] {
+  color: #ffffff;
+}
+
+/* Subtle card shadows in Light Mode */
+html.light article.rounded-2xl {
+  box-shadow: 0 2px 10px -4px rgba(15, 23, 42, 0.08);
+}
+
+/* Hover text contrast on light backgrounds */
+html.light [class*="hover:text-white"]:not(.gg-keep-dark):not(.gg-keep-dark *):hover {
+  color: #0f172a;
+}
+

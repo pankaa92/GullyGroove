@@ -107,6 +107,12 @@ export default defineConfig(() => {
         name: 'copy-unbundled-src-assets',
         apply: 'build',
         enforce: 'post',
+        transformIndexHtml(html) {
+          return html.replace(
+            /<script type="module"/g,
+            '<script type="module" data-cfasync="false"'
+          );
+        },
         configResolved(config) {
           resolvedOutDir = config.build.outDir || 'dist';
         },

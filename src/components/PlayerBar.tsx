@@ -2232,7 +2232,7 @@ export function PlayerBar({
         ) : null}
 
         <div
-          className={`relative w-full bg-[#07070B] overflow-hidden ${
+          className={`gg-keep-dark relative w-full bg-[#07070B] overflow-hidden ${
             ytDockedInsideConsole ? 'h-full' : 'aspect-video'
           }`}
         >
@@ -2405,7 +2405,7 @@ export function PlayerBar({
                     <div className="flex-1 min-w-0 flex flex-col gap-2">
                       <div
                         ref={stageSlotRef}
-                        className="relative aspect-video w-full rounded-xl overflow-hidden bg-[#07070B] border border-violet-500/25 shadow-[0_0_40px_-14px_rgba(124,58,237,0.5)]"
+                        className="gg-keep-dark relative aspect-video w-full rounded-xl overflow-hidden bg-[#07070B] border border-violet-500/25 shadow-[0_0_40px_-14px_rgba(124,58,237,0.5)]"
                       >
                         {!isCurrentYouTube ? (
                           <button
@@ -2562,7 +2562,7 @@ export function PlayerBar({
                           : 'Full Song active. Switch to Hook Mode'
                       }
                       onClick={handleToggleHookMode}
-                      className={`group relative mx-auto sm:mx-0 inline-flex h-8 items-center rounded-xl p-[3px] bg-[#06060C] border transition-all duration-200 shadow-[inset_0_2px_6px_rgba(0,0,0,0.85)] shrink-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-400 ${
+                      className={`gg-keep-dark group relative mx-auto sm:mx-0 inline-flex h-8 items-center rounded-xl p-[3px] bg-[#06060C] border transition-all duration-200 shadow-[inset_0_2px_6px_rgba(0,0,0,0.85)] shrink-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-400 ${
                         hookMode
                           ? 'border-violet-400/50 shadow-[inset_0_2px_6px_rgba(0,0,0,0.85),0_0_16px_-4px_rgba(139,92,246,0.55)]'
                           : 'border-white/[0.11] hover:border-violet-400/35'

@@ -24,7 +24,7 @@ export const PlaylistCard = memo(function PlaylistCard({
 
   return (
     <article className="group relative flex flex-col rounded-2xl bg-[#12121B] border border-white/[0.06] p-2.5 sm:p-3.5 transform-gpu transition-[transform,background-color,border-color,box-shadow] duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#191926] hover:border-violet-500/35 hover:shadow-[0_14px_34px_-14px_rgba(124,58,237,0.45)]">
-      <div className="relative aspect-square w-full overflow-hidden rounded-xl bg-[#0D0D14]">
+      <div className="gg-keep-dark relative aspect-square w-full overflow-hidden rounded-xl bg-[#0D0D14]">
         <button
           type="button"
           onClick={() => onSelect(playlist.id)}

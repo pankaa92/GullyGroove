@@ -24,16 +24,20 @@
       rel="stylesheet"
     />
   </head>
-  <body class="bg-[#09090D] text-slate-100 antialiased selection:bg-violet-500/30 selection:text-white" style="background-color:#09090D;color:#F4F4F5;">
+  <body class="bg-[#09090D] text-slate-100 antialiased selection:bg-violet-500/30 selection:text-white">
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-    <script>
+    <script type="module" data-cfasync="false" src="/src/main.tsx"></script>
+    <script data-cfasync="false">
       (function () {
         var rawEntry = document.querySelector('script[src="/src/main.tsx"]');
         if (!rawEntry) return;
         var host = window.location.hostname;
-        var isGithubPages = host === 'github.io' || host.endsWith('.github.io');
-        if (isGithubPages && !window.location.pathname.includes('/docs/')) {
+        var isStaticRepoHost =
+          host === 'github.io' ||
+          host.endsWith('.github.io') ||
+          host.endsWith('.pages.dev') ||
+          host.endsWith('.workers.dev');
+        if (isStaticRepoHost && !window.location.pathname.includes('/docs/')) {
           var base = window.location.href.split('#')[0].split('?')[0];
           if (!base.endsWith('/')) base += '/';
           window.location.replace(base + 'docs/' + window.location.search + window.location.hash);
