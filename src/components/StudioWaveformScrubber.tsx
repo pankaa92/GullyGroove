@@ -77,7 +77,7 @@ export const StudioWaveformScrubber = memo(function StudioWaveformScrubber({
           if (e.key === 'ArrowRight') onSeek(Math.min(safeDur, currentTime + 5));
           else if (e.key === 'ArrowLeft') onSeek(Math.max(0, currentTime - 5));
         }}
-        className="relative h-12 w-full rounded-xl bg-[#0A0A12] border border-white/[0.07] px-2.5 py-2 flex items-center gap-[3px] cursor-pointer select-none overflow-hidden focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-500"
+        className="gg-waveform-well relative h-12 w-full rounded-xl bg-[#0A0A12] border border-white/[0.07] px-2.5 py-2 flex items-center gap-[3px] cursor-pointer select-none overflow-hidden focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-500"
       >
         {/* Active Hook Window Overlay Band */}
         <div

@@ -13,11 +13,11 @@ export const BoomboxEqRack = memo(function BoomboxEqRack({ side, isPlaying }: Bo
   return (
     <div
       aria-hidden="true"
-      className="flex w-11 sm:w-16 md:w-20 shrink-0 flex-col items-center justify-between rounded-xl sm:rounded-2xl bg-[#0A0A12] border border-white/[0.07] py-2 px-1 sm:py-3 sm:px-2 select-none"
+      className="gg-eq-rack flex w-11 sm:w-16 md:w-20 shrink-0 flex-col items-center justify-between rounded-xl sm:rounded-2xl bg-[#0A0A12] border border-white/[0.07] py-2 px-1 sm:py-3 sm:px-2 select-none"
     >
       {/* Top Rotary Dial Accent */}
       <div className="flex flex-col items-center gap-0.5 sm:gap-1">
-        <div className="relative h-5 w-5 sm:h-7 sm:w-7 rounded-full bg-gradient-to-b from-[#1C1C2B] to-[#0E0E17] border border-violet-500/30 shadow-inner flex items-center justify-center">
+        <div className="gg-eq-dial relative h-5 w-5 sm:h-7 sm:w-7 rounded-full bg-gradient-to-b from-[#1C1C2B] to-[#0E0E17] border border-violet-500/30 shadow-inner flex items-center justify-center">
           <div
             className={`h-2 sm:h-2.5 w-0.5 rounded-full bg-blue-400 origin-bottom transition-transform duration-300 ${
               isPlaying ? (isLeft ? 'rotate-45' : '-rotate-45') : 'rotate-0'

@@ -6,7 +6,6 @@ import {
   Library,
   Music2,
   Play,
-  Plus,
   Search,
   Settings,
   Shuffle,
@@ -754,15 +753,17 @@ export default function App() {
             </button>
           </nav>
 
-          {/* Zone 3: Compact Tune Request + Top-Right Settings */}
+          {/* Zone 3: Compact Request Song + Top-Right Settings */}
           <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={() => setRequestModalOpen(true)}
-              className="inline-flex h-8 items-center gap-1 px-3 rounded-lg bg-gradient-to-r from-violet-600 to-blue-500 text-[11px] font-semibold text-white shadow-md shadow-violet-950/40 hover:opacity-95 active:scale-[0.98] transform-gpu transition-[transform,opacity] duration-150 whitespace-nowrap shrink-0"
+              aria-label="Request a song"
+              title="Request a missing song"
+              className="inline-flex h-7 items-center gap-1 px-2.5 rounded-full bg-gradient-to-r from-violet-600 via-fuchsia-600/90 to-blue-500 border border-violet-300/35 text-[11px] font-semibold tracking-tight text-white shadow-[0_3px_12px_-2px_rgba(124,58,237,0.65)] hover:brightness-110 active:scale-[0.97] transform-gpu transition-all whitespace-nowrap shrink-0"
             >
-              <Plus className="w-3 h-3" />
-              <span>Tune Request</span>
+              <Music2 className="w-3 h-3 text-violet-100 shrink-0" />
+              <span>Request Song</span>
             </button>
             <button
               type="button"

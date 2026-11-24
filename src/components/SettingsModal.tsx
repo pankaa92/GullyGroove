@@ -73,7 +73,7 @@ export function SettingsModal({
       <div
         className={`w-full max-w-md max-h-[88dvh] overflow-y-auto rounded-2xl border shadow-2xl transition-colors ${
           isLight
-            ? 'bg-white border-slate-200 text-slate-900 shadow-slate-900/15'
+            ? 'bg-gradient-to-b from-[#FFFFFF] via-[#FAF9FF] to-[#F5F7FF] border-violet-200/80 text-slate-900 shadow-[0_28px_70px_-18px_rgba(76,29,149,0.22)]'
             : 'bg-[#101018] border-violet-500/30 text-slate-100 shadow-violet-950/60'
         }`}
         onClick={(e) => e.stopPropagation()}
@@ -82,7 +82,7 @@ export function SettingsModal({
         <div
           className={`sticky top-0 z-10 flex items-center justify-between gap-3 px-5 py-4 border-b backdrop-blur-xl ${
             isLight
-              ? 'bg-white/95 border-slate-200'
+              ? 'bg-white/88 border-violet-200/60'
               : 'bg-[#101018]/95 border-white/[0.08]'
           }`}
         >
@@ -108,7 +108,7 @@ export function SettingsModal({
             aria-label="Close settings"
             className={`flex h-8 w-8 items-center justify-center rounded-xl transition-colors ${
               isLight
-                ? 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
+                ? 'text-slate-500 hover:bg-violet-50 hover:text-violet-700'
                 : 'text-slate-400 hover:bg-white/10 hover:text-white'
             }`}
           >
@@ -145,7 +145,7 @@ export function SettingsModal({
                   theme === 'dark'
                     ? 'border-violet-500 bg-gradient-to-r from-violet-600/20 to-blue-500/15 ring-1 ring-violet-500/40'
                     : isLight
-                      ? 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+                      ? 'border-slate-200/90 bg-white/90 hover:bg-violet-50/60 hover:border-violet-200 shadow-sm'
                       : 'border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.07]'
                 }`}
               >
@@ -181,13 +181,13 @@ export function SettingsModal({
                 aria-pressed={theme === 'light'}
                 className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${
                   theme === 'light'
-                    ? 'border-violet-500 bg-violet-50 ring-1 ring-violet-500/40'
+                    ? 'border-violet-500 bg-gradient-to-br from-violet-50 via-white to-sky-50 ring-1 ring-violet-500/35 shadow-[0_8px_20px_-8px_rgba(109,40,217,0.3)]'
                     : isLight
-                      ? 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+                      ? 'border-slate-200 bg-white hover:bg-slate-50'
                       : 'border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.07]'
                 }`}
               >
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-600 border border-amber-200">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-amber-100 via-orange-50 to-violet-100 text-amber-600 border border-amber-200/80 shadow-sm">
                   <Sun className="w-4 h-4" />
                 </div>
                 <div className="min-w-0 flex-1">
@@ -205,7 +205,7 @@ export function SettingsModal({
                   </div>
                   <p
                     className={`text-[11px] truncate ${
-                      isLight ? 'text-slate-500' : 'text-slate-400'
+                      isLight ? 'text-violet-700/80' : 'text-slate-400'
                     }`}
                   >
                     Bright Daylight

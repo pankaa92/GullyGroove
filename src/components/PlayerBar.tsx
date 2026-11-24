@@ -2562,9 +2562,9 @@ export function PlayerBar({
                           : 'Full Song active. Switch to Hook Mode'
                       }
                       onClick={handleToggleHookMode}
-                      className={`gg-keep-dark group relative mx-auto sm:mx-0 inline-flex h-8 items-center rounded-xl p-[3px] bg-[#06060C] border transition-all duration-200 shadow-[inset_0_2px_6px_rgba(0,0,0,0.85)] shrink-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-400 ${
+                      className={`gg-hook-switch group relative mx-auto sm:mx-0 inline-flex h-8 items-center rounded-xl p-[3px] bg-[#06060C] border transition-all duration-200 shadow-[inset_0_2px_6px_rgba(0,0,0,0.85)] shrink-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-400 ${
                         hookMode
-                          ? 'border-violet-400/50 shadow-[inset_0_2px_6px_rgba(0,0,0,0.85),0_0_16px_-4px_rgba(139,92,246,0.55)]'
+                          ? 'is-hook border-violet-400/50 shadow-[inset_0_2px_6px_rgba(0,0,0,0.85),0_0_16px_-4px_rgba(139,92,246,0.55)]'
                           : 'border-white/[0.11] hover:border-violet-400/35'
                       }`}
                     >
@@ -2706,9 +2706,9 @@ export function PlayerBar({
                         style={{
                           background: `linear-gradient(to right, #8B5CF6 0%, #3B82F6 ${
                             (muted ? 0 : volume) * 100
-                          }%, rgba(255,255,255,0.14) ${
+                          }%, var(--gg-range-track-rest, rgba(255,255,255,0.14)) ${
                             (muted ? 0 : volume) * 100
-                          }%, rgba(255,255,255,0.14) 100%)`,
+                          }%, var(--gg-range-track-rest, rgba(255,255,255,0.14)) 100%)`,
                           borderRadius: '9999px',
                           height: '4px',
                         }}
@@ -3204,9 +3204,9 @@ export function PlayerBar({
                     : 'Full Song active. Switch to Hook Mode'
                 }
                 title={hookMode ? 'Hook Mode: On (switch to Full)' : 'Full Song (switch to Hook)'}
-                className={`group relative inline-flex h-8 items-center rounded-xl p-[2.5px] bg-[#06060C] border transition-all duration-200 shadow-[inset_0_1px_5px_rgba(0,0,0,0.85)] shrink-0 ${
+                className={`gg-hook-switch group relative inline-flex h-8 items-center rounded-xl p-[2.5px] bg-[#06060C] border transition-all duration-200 shadow-[inset_0_1px_5px_rgba(0,0,0,0.85)] shrink-0 ${
                   hookMode
-                    ? 'border-violet-400/50 shadow-[inset_0_1px_5px_rgba(0,0,0,0.85),0_0_12px_-3px_rgba(139,92,246,0.5)]'
+                    ? 'is-hook border-violet-400/50 shadow-[inset_0_1px_5px_rgba(0,0,0,0.85),0_0_12px_-3px_rgba(139,92,246,0.5)]'
                     : 'border-white/[0.1] hover:border-violet-400/35'
                 }`}
               >
@@ -3314,7 +3314,7 @@ export function PlayerBar({
                 onChange={(e) => handleSeek(Number(e.target.value))}
                 className="gg-range w-full"
                 style={{
-                  background: `linear-gradient(to right, #8B5CF6 0%, #3B82F6 ${progressPct}%, rgba(255,255,255,0.12) ${progressPct}%, rgba(255,255,255,0.12) 100%)`,
+                  background: `linear-gradient(to right, #8B5CF6 0%, #3B82F6 ${progressPct}%, var(--gg-range-track-rest, rgba(255,255,255,0.12)) ${progressPct}%, var(--gg-range-track-rest, rgba(255,255,255,0.12)) 100%)`,
                   borderRadius: '9999px',
                   height: '4px',
                 }}
@@ -3417,7 +3417,7 @@ export function PlayerBar({
               style={{
                 background: `linear-gradient(to right, #8B5CF6 0%, #3B82F6 ${
                   (muted ? 0 : volume) * 100
-                }%, rgba(255,255,255,0.12) ${(muted ? 0 : volume) * 100}%, rgba(255,255,255,0.12) 100%)`,
+                }%, var(--gg-range-track-rest, rgba(255,255,255,0.12)) ${(muted ? 0 : volume) * 100}%, var(--gg-range-track-rest, rgba(255,255,255,0.12)) 100%)`,
                 borderRadius: '9999px',
                 height: '4px',
               }}
@@ -3565,7 +3565,7 @@ export function PlayerBar({
                 onChange={(e) => handleSeek(Number(e.target.value))}
                 className="gg-range w-full"
                 style={{
-                  background: `linear-gradient(to right, #8B5CF6 0%, #3B82F6 ${progressPct}%, rgba(255,255,255,0.14) ${progressPct}%, rgba(255,255,255,0.14) 100%)`,
+                  background: `linear-gradient(to right, #8B5CF6 0%, #3B82F6 ${progressPct}%, var(--gg-range-track-rest, rgba(255,255,255,0.14)) ${progressPct}%, var(--gg-range-track-rest, rgba(255,255,255,0.14)) 100%)`,
                   borderRadius: '9999px',
                   height: '4px',
                 }}
@@ -3587,9 +3587,9 @@ export function PlayerBar({
                     ? 'Hook Mode active. Switch to Full Song'
                     : 'Full Song active. Switch to Hook Mode'
                 }
-                className={`inline-flex h-8 items-center gap-1 px-1.5 rounded-xl bg-[#06060C] border transition-all duration-200 shadow-[inset_0_1px_4px_rgba(0,0,0,0.85)] shrink-0 ${
+                className={`gg-hook-switch inline-flex h-8 items-center gap-1 px-1.5 rounded-xl bg-[#06060C] border transition-all duration-200 shadow-[inset_0_1px_4px_rgba(0,0,0,0.85)] shrink-0 ${
                   hookMode
-                    ? 'border-violet-400/50 text-violet-200 shadow-[inset_0_1px_4px_rgba(0,0,0,0.85),0_0_10px_-2px_rgba(139,92,246,0.5)]'
+                    ? 'is-hook border-violet-400/50 text-violet-200 shadow-[inset_0_1px_4px_rgba(0,0,0,0.85),0_0_10px_-2px_rgba(139,92,246,0.5)]'
                     : 'border-white/[0.1] text-slate-400 hover:text-white'
                 }`}
               >
