@@ -4,6 +4,7 @@ import {
   Compass,
   FolderPlus,
   Library,
+  Music2,
   Play,
   Plus,
   Search,
@@ -793,10 +794,12 @@ export default function App() {
             <button
               type="button"
               onClick={() => setRequestModalOpen(true)}
-              aria-label="Tune Request"
-              className="inline-flex h-7 sm:h-8 items-center gap-1 px-2 sm:px-2.5 rounded-lg bg-gradient-to-r from-violet-600 to-blue-500 text-[10.5px] sm:text-[11px] font-semibold text-white shadow-sm hover:opacity-95 whitespace-nowrap shrink-0"
+              aria-label="Request a song"
+              title="Request a missing song"
+              className="inline-flex h-6 sm:h-7 items-center gap-0.5 sm:gap-1 px-1.5 sm:px-2 rounded-full bg-gradient-to-r from-violet-600 via-fuchsia-600/90 to-blue-500 border border-violet-300/35 text-[9.5px] sm:text-[10.5px] font-semibold tracking-tight text-white shadow-[0_3px_10px_-2px_rgba(124,58,237,0.65)] hover:brightness-110 active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
             >
-              <span>♫ Request</span>
+              <Music2 className="w-2.5 h-2.5 text-violet-100 shrink-0" />
+              <span>Request Song</span>
             </button>
             <button
               type="button"

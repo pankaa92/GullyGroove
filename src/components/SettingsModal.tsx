@@ -356,14 +356,21 @@ export function SettingsModal({
               </div>
 
               <p
-                className={`text-xs leading-relaxed ${
-                  isLight ? 'text-slate-600' : 'text-slate-300'
+                className={`text-xs leading-relaxed rounded-xl px-3 py-2.5 border ${
+                  isLight
+                    ? 'bg-white/80 border-violet-200/80 text-slate-600'
+                    : 'bg-[#0B0B14]/70 border-white/[0.06] text-slate-300'
                 }`}
               >
-                Tap Groovy at the bottom-right corner (or press{' '}
-                <span className="font-mono-tabular font-semibold">Alt+G</span>) to
-                instantly pause background music, ask for any song or playlist in a
-                normal female voice, control volume, or switch Hook Mode.
+                <span
+                  className={`block font-display font-bold mb-1 ${
+                    isLight ? 'text-violet-700' : 'text-violet-300'
+                  }`}
+                >
+                  Your Music. Your Voice. Your Vibe.
+                </span>
+                Groovy is more than just a music player — it&apos;s your personal music
+                companion, designed to make listening effortless, fun, and interactive.
               </p>
 
               <div
