@@ -38,7 +38,7 @@
           host.endsWith('.pages.dev') ||
           host.endsWith('.workers.dev');
         if (isStaticRepoHost && !window.location.pathname.includes('/docs/')) {
-          var base = window.location.href.split('#')[0].split('?')[0];
+          var base = window.location.href.split('#')[0].split('?')[0].replace(/\/index\.html$/i, '/');
           if (!base.endsWith('/')) base += '/';
           window.location.replace(base + 'docs/' + window.location.search + window.location.hash);
         }
