@@ -3428,6 +3428,8 @@ function buildInitialTracks(): Track[] {
     category,
     also,
     banger,
+    hookStartSec,
+    hookEndSec,
   ] of BAJAO_SONGS) {
     if (!youtubeIds || youtubeIds.length === 0) continue;
     const primaryYtId = youtubeIds[0];
@@ -3444,6 +3446,16 @@ function buildInitialTracks(): Track[] {
       }
       if (!existing.durationSec && durationSec > 0) {
         existing.durationSec = durationSec;
+      }
+      if (
+        existing.hookStartSec === undefined &&
+        existing.hookEndSec === undefined &&
+        Number.isFinite(hookStartSec) &&
+        Number.isFinite(hookEndSec) &&
+        hookEndSec - hookStartSec >= 8
+      ) {
+        existing.hookStartSec = hookStartSec;
+        existing.hookEndSec = hookEndSec;
       }
       continue;
     }
@@ -3472,6 +3484,9 @@ function buildInitialTracks(): Track[] {
       externalUrl: `https://youtu.be/${primaryYtId}`,
       attribution: 'Official YouTube Embed · Bajao Curated Catalog',
       playlistIds,
+      ...(Number.isFinite(hookStartSec) && Number.isFinite(hookEndSec)
+        ? { hookStartSec, hookEndSec }
+        : {}),
       plays: banger ? 3250000 : 1450000,
     };
 

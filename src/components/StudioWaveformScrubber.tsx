@@ -1,7 +1,7 @@
 import { RotateCcw, Scissors } from 'lucide-react';
 import { memo, useMemo, useRef } from 'react';
 import { formatDuration } from '../utils/format';
-import { clampHookWindow, generateWaveformBars } from '../utils/hookTiming';
+import { clampHookWindow, generateWaveformBars, MIN_HOOK_SPAN_SEC } from '../utils/hookTiming';
 
 interface StudioWaveformScrubberProps {
   trackId: string;
@@ -52,17 +52,25 @@ export const StudioWaveformScrubber = memo(function StudioWaveformScrubber({
   };
 
   const handleStartChange = (nextStart: number) => {
-    const clamped = clampHookWindow(nextStart, Math.max(hookEndSec, nextStart + 10), safeDur);
+    const clamped = clampHookWindow(
+      nextStart,
+      Math.max(hookEndSec, nextStart + MIN_HOOK_SPAN_SEC),
+      safeDur
+    );
     onUpdateHook(clamped.startSec, clamped.endSec);
   };
 
   const handleEndChange = (nextEnd: number) => {
-    const clamped = clampHookWindow(Math.min(hookStartSec, nextEnd - 10), nextEnd, safeDur);
+    const clamped = clampHookWindow(
+      Math.min(hookStartSec, nextEnd - MIN_HOOK_SPAN_SEC),
+      nextEnd,
+      safeDur
+    );
     onUpdateHook(clamped.startSec, clamped.endSec);
   };
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-1">
       {/* Interactive 48-bar Beat-Reactive Waveform & Hook Scrubber */}
       <div
         ref={waveContainerRef}
@@ -77,7 +85,7 @@ export const StudioWaveformScrubber = memo(function StudioWaveformScrubber({
           if (e.key === 'ArrowRight') onSeek(Math.min(safeDur, currentTime + 5));
           else if (e.key === 'ArrowLeft') onSeek(Math.max(0, currentTime - 5));
         }}
-        className="gg-waveform-well relative h-12 w-full rounded-xl bg-[#0A0A12] border border-white/[0.07] px-2.5 py-2 flex items-center gap-[3px] cursor-pointer select-none overflow-hidden focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-500"
+        className="gg-waveform-well relative h-9 sm:h-10 w-full rounded-xl bg-[#0A0A12] border border-white/[0.07] px-2 py-1 flex items-center gap-[3px] cursor-pointer select-none overflow-hidden focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-500"
       >
         {/* Active Hook Window Overlay Band */}
         <div
@@ -135,9 +143,9 @@ export const StudioWaveformScrubber = memo(function StudioWaveformScrubber({
       </div>
 
       {/* Dual Hook Handles & Time Readout */}
-      <div className="space-y-1.5">
+      <div className="space-y-0.5">
         {/* Dual Range Track for Hook Start & Hook End */}
-        <div className="relative h-5 flex items-center">
+        <div className="relative h-3.5 flex items-center">
           <div className="absolute left-0 right-0 h-1 rounded-full bg-white/10" />
           <div
             className="absolute h-1 rounded-full bg-gradient-to-r from-violet-500 to-blue-500"
@@ -150,7 +158,7 @@ export const StudioWaveformScrubber = memo(function StudioWaveformScrubber({
             type="range"
             aria-label="Hook start time"
             min={0}
-            max={Math.max(10, Math.floor(safeDur) - 10)}
+            max={Math.max(MIN_HOOK_SPAN_SEC, Math.floor(safeDur) - MIN_HOOK_SPAN_SEC)}
             step={1}
             value={Math.round(hookStartSec)}
             onChange={(e) => handleStartChange(Number(e.target.value))}
@@ -159,7 +167,7 @@ export const StudioWaveformScrubber = memo(function StudioWaveformScrubber({
           <input
             type="range"
             aria-label="Hook end time"
-            min={10}
+            min={MIN_HOOK_SPAN_SEC}
             max={Math.max(20, Math.floor(safeDur))}
             step={1}
             value={Math.round(hookEndSec)}
@@ -169,7 +177,7 @@ export const StudioWaveformScrubber = memo(function StudioWaveformScrubber({
         </div>
 
         {/* Clean Unboxed Metadata Row */}
-        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono-tabular">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] sm:text-[11px] font-mono-tabular">
           <button
             type="button"
             onClick={() => onSeek(hookStartSec)}

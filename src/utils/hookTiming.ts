@@ -6,13 +6,60 @@ export interface HookRange {
 }
 
 const CUSTOM_HOOKS_STORAGE_KEY = 'gg_custom_hooks_v1';
-const MIN_HOOK_SPAN_SEC = 10;
+export const MIN_HOOK_SPAN_SEC = 8;
+
+export const CROSSFADE_DEFAULT_MS = 1500;
+export const CROSSFADE_MIN_MS = 1200;
+export const CROSSFADE_MAX_MS = 2400;
+export const CROSSFADE_TICK_MS = 40;
+export const FULL_SONG_CUTOFF_LEAD_SEC = 2;
+
+/**
+ * Bajao.party BPM-matched equal-power crossfade duration:
+ * 1 bar (4 beats) = 240,000 / bpm ms, clamped to [1200ms, 2400ms], default 1500ms.
+ */
+export function getBpmCrossfadeMs(bpm?: number): number {
+  if (!bpm || !Number.isFinite(bpm) || bpm <= 0) return CROSSFADE_DEFAULT_MS;
+  const barMs = (240 * 1000) / bpm;
+  return Math.min(CROSSFADE_MAX_MS, Math.max(CROSSFADE_MIN_MS, Math.round(barMs)));
+}
+
+/**
+ * Network/device-adaptive pre-roll lead window matching bajao.party:
+ * 3s on normal connections, 6s on slow/lite connections.
+ */
+export function getPrerollLeadSec(): number {
+  if (typeof navigator === 'undefined') return 3;
+  const nav = navigator as Navigator & {
+    deviceMemory?: number;
+    hardwareConcurrency?: number;
+    connection?: {
+      saveData?: boolean;
+      effectiveType?: string;
+      downlink?: number;
+      rtt?: number;
+    };
+  };
+  const conn = nav.connection;
+  const isLite =
+    conn?.saveData === true ||
+    (conn?.effectiveType && ['slow-2g', '2g', '3g'].includes(conn.effectiveType)) ||
+    (nav.deviceMemory !== undefined && nav.deviceMemory <= 2) ||
+    (nav.hardwareConcurrency !== undefined && nav.hardwareConcurrency <= 2) ||
+    (conn?.downlink !== undefined && conn.downlink > 0 && conn.downlink < 1.5) ||
+    (conn?.rtt !== undefined && conn.rtt >= 600);
+  return isLite ? 6 : 3;
+}
+
+function roundTenth(val: number): number {
+  return Math.round(val * 10) / 10;
+}
 
 export function getDefaultHookWindow(
   durationSec: number,
   track?: Track | null
 ): HookRange {
-  const safeDur = Math.max(30, Math.round(durationSec || track?.durationSec || 218));
+  const safeDur = Math.max(20, Math.round(durationSec || track?.durationSec || 218));
 
   if (
     track?.hookStartSec !== undefined &&
@@ -20,12 +67,14 @@ export function getDefaultHookWindow(
     Number.isFinite(track.hookStartSec) &&
     Number.isFinite(track.hookEndSec) &&
     track.hookEndSec - track.hookStartSec >= MIN_HOOK_SPAN_SEC &&
-    track.hookEndSec <= safeDur
+    track.hookEndSec <= safeDur + 1
   ) {
-    return {
-      startSec: Math.max(0, Math.round(track.hookStartSec)),
-      endSec: Math.min(safeDur, Math.round(track.hookEndSec)),
-    };
+    const startSec = Math.max(0, roundTenth(track.hookStartSec));
+    const endSec = Math.min(
+      safeDur,
+      Math.max(startSec + MIN_HOOK_SPAN_SEC, roundTenth(track.hookEndSec))
+    );
+    return { startSec, endSec };
   }
 
   const startSec = Math.min(
@@ -49,11 +98,11 @@ export function clampHookWindow(
   const safeDur = Math.max(20, Math.round(durationSec || 218));
   const clampedStart = Math.max(
     0,
-    Math.min(safeDur - MIN_HOOK_SPAN_SEC, Math.round(startSec))
+    Math.min(safeDur - MIN_HOOK_SPAN_SEC, roundTenth(startSec))
   );
   const clampedEnd = Math.max(
     clampedStart + MIN_HOOK_SPAN_SEC,
-    Math.min(safeDur, Math.round(endSec))
+    Math.min(safeDur, roundTenth(endSec))
   );
   return { startSec: clampedStart, endSec: clampedEnd };
 }

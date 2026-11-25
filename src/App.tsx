@@ -158,7 +158,15 @@ export default function App() {
       const saved = localStorage.getItem('gg_recently_played_v1');
       if (saved) {
         const parsed = JSON.parse(saved) as Track[];
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed)) {
+          return parsed.filter(
+            (t) =>
+              t &&
+              t.playbackRights !== 'preview-30s' &&
+              t.providerId !== 'itunes-preview' &&
+              (t.durationSec === 0 || t.durationSec > 30)
+          );
+        }
       }
     } catch {
       // ignore storage errors
@@ -1347,7 +1355,7 @@ export default function App() {
           {/* Clean Editorial Footer */}
           <footer className="mt-16 pt-6 border-t border-white/[0.07] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-slate-500">
             <p>
-              GullyGroove — Discover Music. Feel Every Beat. Streaming royalty-free, public-domain &amp; explicitly licensed previews.
+              GullyGroove — Discover Music. Feel Every Beat. Streaming full-length royalty-free, public-domain &amp; explicitly licensed tracks.
             </p>
             <button
               type="button"

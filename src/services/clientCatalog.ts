@@ -76,12 +76,29 @@ function normalizeStaticTrack(track: Track): Track {
   };
 }
 
+function isEligibleCatalogTrack(track: Track): boolean {
+  if (track.playbackRights === 'preview-30s' || track.providerId === 'itunes-preview') {
+    return false;
+  }
+  return track.durationSec === 0 || track.durationSec > 30;
+}
+
 function readStoredTracks(): Track[] {
   try {
     const raw = localStorage.getItem(STATIC_TRACKS_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as Track[];
-    return Array.isArray(parsed) ? parsed.map(normalizeStaticTrack) : [];
+    if (!Array.isArray(parsed)) return [];
+    const normalized = parsed.map(normalizeStaticTrack);
+    const filtered = normalized.filter(isEligibleCatalogTrack);
+    if (filtered.length !== parsed.length) {
+      try {
+        localStorage.setItem(STATIC_TRACKS_KEY, JSON.stringify(filtered));
+      } catch {
+        // ignore storage quota errors
+      }
+    }
+    return filtered;
   } catch {
     return [];
   }
@@ -103,6 +120,7 @@ function getStaticTracks(): Track[] {
   const map = new Map<string, Track>();
 
   for (const t of [...stored, ...INITIAL_TRACKS]) {
+    if (!isEligibleCatalogTrack(t)) continue;
     const normalized = normalizeStaticTrack(t);
     const extraPlaylists = assignments[normalized.id] || [];
     normalized.playlistIds = mapPlaylistIds([...normalized.playlistIds, ...extraPlaylists]);
@@ -142,22 +160,9 @@ function getStaticProviders(): ProviderStatus[] {
       active: true,
       playbackRights: 'full-stream',
       licensePolicy:
-        'Streams full-length Creative Commons / independent artist tracks via Audius decentralized open API.',
+        'Streams full-length (>30s) Creative Commons / independent artist tracks via Audius decentralized open API.',
       description:
         'Full-song direct MP3 streaming across Bollywood mixes, Punjabi, Haryanvi, Bhojpuri, 90s classics, and DJ mashups.',
-      envKeysRequired: [],
-    },
-    {
-      id: 'itunes-preview',
-      name: 'Apple Music / iTunes India Previews',
-      category: 'Licensed Preview API',
-      configured: true,
-      active: true,
-      playbackRights: 'preview-30s',
-      licensePolicy:
-        'Provides official 30-second AAC previews and album metadata from the Indian & global catalog.',
-      description:
-        'Permitted 30-second previews for chartbusters, movie soundtracks, and international releases.',
       envKeysRequired: [],
     },
     {
@@ -243,7 +248,7 @@ async function searchAudiusClient(query: string, limit = 10): Promise<Track[]> {
     };
 
     return (json.data || [])
-      .filter((item) => item.id && item.title)
+      .filter((item) => item.id && item.title && Math.round(item.duration || 0) > 30)
       .map((item) => ({
         id: `audius-${item.id}`,
         title: item.title || 'Untitled Track',
@@ -251,7 +256,7 @@ async function searchAudiusClient(query: string, limit = 10): Promise<Track[]> {
         album: 'Audius Open Catalog',
         genre: item.genre || 'Independent',
         language: 'Hindi / Global',
-        durationSec: Math.max(15, Math.round(item.duration || 180)),
+        durationSec: Math.round(item.duration || 180),
         bpm: 108,
         year: 2025,
         coverUrl:
@@ -270,58 +275,6 @@ async function searchAudiusClient(query: string, limit = 10): Promise<Track[]> {
         attribution: `${item.user?.name || 'Artist'} via Audius`,
         playlistIds: [],
         plays: Number(item.play_count) || 12000,
-      }));
-  } catch {
-    return [];
-  }
-}
-
-async function searchItunesClient(query: string, limit = 12): Promise<Track[]> {
-  try {
-    const url = `https://itunes.apple.com/search?term=${encodeURIComponent(
-      query
-    )}&country=IN&media=music&entity=song&limit=${limit}`;
-    const res = await fetch(url);
-    if (!res.ok) return [];
-    const json = (await res.json()) as {
-      results?: Array<{
-        trackId?: number;
-        trackName?: string;
-        artistName?: string;
-        collectionName?: string;
-        primaryGenreName?: string;
-        artworkUrl100?: string;
-        previewUrl?: string;
-        trackViewUrl?: string;
-        releaseDate?: string;
-      }>;
-    };
-
-    return (json.results || [])
-      .filter((item) => item.trackId && item.trackName && item.previewUrl)
-      .map((item) => ({
-        id: `itunes-${item.trackId}`,
-        title: item.trackName || 'Unknown Track',
-        artist: item.artistName || 'Unknown Artist',
-        album: item.collectionName || 'Single',
-        genre: item.primaryGenreName || 'Bollywood',
-        language: 'Hindi / Global',
-        durationSec: 30,
-        bpm: 105,
-        year: item.releaseDate ? new Date(item.releaseDate).getFullYear() : 2024,
-        coverUrl: item.artworkUrl100
-          ? item.artworkUrl100.replace('100x100bb', '400x400bb')
-          : COVER_ASSETS.bollywoodRomantic,
-        providerId: 'itunes-preview',
-        providerName: 'Apple Music / iTunes India',
-        licenseType: 'Permitted 30s Preview',
-        licenseSummary: 'Official 30-second preview streamed from Apple Music / iTunes India.',
-        playbackRights: 'preview-30s',
-        streamUrl: item.previewUrl || '',
-        externalUrl: item.trackViewUrl,
-        attribution: `${item.artistName || 'Artist'} via Apple Music Preview`,
-        playlistIds: [],
-        plays: 500000,
       }));
   } catch {
     return [];
@@ -361,12 +314,12 @@ export async function searchCatalog(
 
   const q = (filters.query || '').trim();
   if (includeExternal && q.length >= 2) {
-    const [audiusRes, itunesRes] = await Promise.allSettled([
+    const [audiusRes] = await Promise.allSettled([
       searchAudiusClient(q, 10),
-      searchItunesClient(q, 12),
     ]);
-    if (audiusRes.status === 'fulfilled') externalTracks.push(...audiusRes.value);
-    if (itunesRes.status === 'fulfilled') externalTracks.push(...itunesRes.value);
+    if (audiusRes.status === 'fulfilled') {
+      externalTracks.push(...audiusRes.value.filter(isEligibleCatalogTrack));
+    }
 
     if (filters.providerId && filters.providerId !== 'all') {
       externalTracks = externalTracks.filter((t) => t.providerId === filters.providerId);
@@ -426,6 +379,7 @@ export async function assignTrackToPlaylist(
 
   let targetTrack = existingLocal;
   if (!targetTrack && discoveredTrack && discoveredTrack.id === trackId) {
+    if (!isEligibleCatalogTrack(discoveredTrack)) return null;
     targetTrack = normalizeStaticTrack(discoveredTrack);
     stored.unshift(targetTrack);
     try {
@@ -492,7 +446,7 @@ export async function createVaultTrack(input: NewAuthorisedTrackInput): Promise<
     album: input.album.trim() || 'Independent Release',
     genre: input.genre.trim() || 'Indipop',
     language: input.language.trim() || 'Hindi',
-    durationSec: Math.max(10, Math.min(Number(input.durationSec) || 218, 3600)),
+    durationSec: Math.max(31, Math.min(Number(input.durationSec) || 218, 3600)),
     bpm: 108,
     year: 2026,
     coverUrl: input.coverUrl?.trim() || COVER_ASSETS.heroStage,

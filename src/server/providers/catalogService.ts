@@ -7,7 +7,6 @@ import type {
   Track,
 } from '../../types/music';
 import { AudiusOpenProvider } from './audiusProvider';
-import { ItunesPreviewProvider } from './itunesProvider';
 import { JamendoCcProvider } from './jamendoProvider';
 import { YoutubeDataProvider } from './youtubeProvider';
 
@@ -21,8 +20,15 @@ const LEGACY_PLAYLIST_MAP: Record<string, string> = {
   'bollywood-romantic-hits': 'top-50-hindi',
 };
 
+function isFullLengthTrack(track: Track): boolean {
+  if (track.playbackRights === 'preview-30s' || track.providerId === 'itunes-preview') {
+    return false;
+  }
+  return track.durationSec === 0 || track.durationSec > 30;
+}
+
 class CatalogService {
-  private tracks: Track[] = INITIAL_TRACKS.map((t) => ({
+  private tracks: Track[] = INITIAL_TRACKS.filter(isFullLengthTrack).map((t) => ({
     ...t,
     playlistIds: Array.from(
       new Set(
@@ -39,7 +45,6 @@ class CatalogService {
   }));
   private playlists = [...INITIAL_PLAYLISTS];
   private audius = new AudiusOpenProvider();
-  private itunes = new ItunesPreviewProvider();
   private youtube = new YoutubeDataProvider();
   private jamendo = new JamendoCcProvider();
 
@@ -72,7 +77,6 @@ class CatalogService {
         envKeysRequired: [],
       },
       this.audius.getStatus(),
-      this.itunes.getStatus(),
       this.youtube.getStatus(),
       this.jamendo.getStatus(),
     ];
@@ -149,7 +153,6 @@ class CatalogService {
 
     const tasks: Promise<Track[]>[] = [
       this.audius.search(query, 10),
-      this.itunes.search(query, 12),
     ];
     if (this.youtube.getStatus().configured) {
       tasks.push(this.youtube.search(query, 4));
@@ -162,7 +165,7 @@ class CatalogService {
     const merged: Track[] = [];
     for (const res of settled) {
       if (res.status === 'fulfilled') {
-        merged.push(...res.value);
+        merged.push(...res.value.filter(isFullLengthTrack));
       }
     }
     return merged;
@@ -177,7 +180,7 @@ class CatalogService {
       album: input.album.trim() || 'Independent Release',
       genre: input.genre.trim() || 'Indipop',
       language: input.language.trim() || 'Hindi',
-      durationSec: Math.max(10, Math.min(Number(input.durationSec) || 218, 3600)),
+      durationSec: Math.max(31, Math.min(Number(input.durationSec) || 218, 3600)),
       bpm: 108,
       year: 2026,
       coverUrl: input.coverUrl?.trim() || COVER_ASSETS.heroStage,
@@ -216,6 +219,7 @@ class CatalogService {
 
     let track = this.tracks.find((t) => t.id === trackId);
     if (!track && discoveredTrack && discoveredTrack.id === trackId) {
+      if (!isFullLengthTrack(discoveredTrack)) return null;
       track = {
         ...discoveredTrack,
         playlistIds: Array.from(new Set(discoveredTrack.playlistIds || [])),

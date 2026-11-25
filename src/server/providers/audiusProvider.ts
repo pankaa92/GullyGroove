@@ -57,7 +57,7 @@ export class AudiusOpenProvider implements MusicProviderAdapter {
       if (!Array.isArray(json.data)) return [];
 
       return json.data
-        .filter((item) => Boolean(item.id && item.title && (item.duration || 0) > 20))
+        .filter((item) => Boolean(item.id && item.title && Math.round(item.duration || 0) > 30))
         .map((item): Track => {
           const year = item.release_date
             ? new Date(item.release_date).getFullYear()

@@ -182,7 +182,7 @@ export function SearchExploreView({
                     Live Music Discovery ({trimmedQuery})
                   </h2>
                   <p className="text-xs text-slate-400">
-                    Full independent tracks via Audius Open Streaming & official 30s previews via Apple Music India.
+                    Full-length independent tracks (&gt;30s) via Audius Open Streaming.
                   </p>
                 </div>
                 <span className="text-xs font-mono-tabular text-slate-500">

@@ -54,7 +54,7 @@ export class JamendoCcProvider implements MusicProviderAdapter {
       if (!Array.isArray(json.results)) return [];
 
       return json.results
-        .filter((item) => Boolean(item.audio))
+        .filter((item) => Boolean(item.audio) && Math.round(item.duration || 0) > 30)
         .map((item): Track => {
           const year = item.releasedate ? new Date(item.releasedate).getFullYear() : 2025;
           return {

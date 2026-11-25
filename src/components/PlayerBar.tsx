@@ -38,7 +38,11 @@ import {
 } from '../utils/backgroundAudio';
 import { formatDuration } from '../utils/format';
 import {
+  CROSSFADE_TICK_MS,
+  FULL_SONG_CUTOFF_LEAD_SEC,
+  getBpmCrossfadeMs,
   getDefaultHookWindow,
+  getPrerollLeadSec,
   loadCustomHooks,
   saveCustomHooksMap,
   type HookRange,
@@ -50,8 +54,11 @@ import { StudioWaveformScrubber } from './StudioWaveformScrubber';
 export type RepeatMode = 'off' | 'all' | 'one';
 type ConsoleDrawerTab = 'queue' | 'recent' | null;
 
-const CROSSFADE_TARGET_SEC = 8;
+const PREROLL_MIN_REMAINING_SEC = 0.4;
+const PREROLL_DRIFT_SNAP_SEC = 0.2;
+const CROSSFADE_ATTEMPT_DEBOUNCE_MS = 3500;
 const YT_BUFFER_WATCHDOG_MS = 12000;
+type YtSlotMode = 'idle' | 'active' | 'precue' | 'preroll' | 'crossfade';
 
 interface YTPlayerInstance {
   playVideo: () => void;
@@ -248,6 +255,15 @@ export function PlayerBar({
   const ytEmbedRetryIdxRef = useRef<[number, number]>([0, 0]);
   const activeYtDeckIdxRef = useRef<0 | 1>(0);
   const ytStartZeroRef = useRef<[boolean, boolean]>([false, false]);
+  const ytDeckModeRef = useRef<[YtSlotMode, YtSlotMode]>(['idle', 'idle']);
+  const ytPreRolledRef = useRef<[boolean, boolean]>([false, false]);
+  const ytPrerollStartSecRef = useRef<[number, number]>([0, 0]);
+  const ytPrerollLatencyRef = useRef<number>(0.5);
+  const audioPreRolledRef = useRef<[boolean, boolean]>([false, false]);
+  const exitTimerRef = useRef<number | null>(null);
+  const exitTimerTrackIdRef = useRef<string>('');
+  const lastCrossfadeAttemptMsRef = useRef<number>(0);
+  const ytWaitCancelRef = useRef<(() => void) | null>(null);
   const ytBufferingSinceRef = useRef<number | null>(null);
   const wakeLockRef = useRef<{ release: () => Promise<void> } | null>(null);
 
@@ -357,12 +373,19 @@ export function PlayerBar({
 
   const isCurrentYouTube =
     currentTrack?.playbackRights === 'embed-only' && Boolean(currentTrack.embedId);
-  const hasAnyYtDeck = Boolean(ytSlotTracks[0] || ytSlotTracks[1]);
+  const isCrossfadingToYouTube = Boolean(
+    crossfadeStatus !== null && transitionRef.current?.incomingKind === 'youtube'
+  );
+  const ytStageVisible = Boolean(
+    currentTrack && (isCurrentYouTube || isCrossfadingToYouTube)
+  );
   const displayedYtTrack =
     (visualCrossfadeYtIdx !== null ? ytSlotTracks[visualCrossfadeYtIdx] : null) ??
-    ytSlotTracks[activeYtDeckIdx] ??
-    ytSlotTracks[0] ??
-    ytSlotTracks[1];
+    (isCurrentYouTube
+      ? ytSlotTracks[activeYtDeckIdx] ?? currentTrack
+      : isCrossfadingToYouTube && transitionRef.current
+        ? ytSlotTracks[transitionRef.current.incomingYtDeckIdx]
+        : null);
   const nextTrackPreview = currentTrack ? getNextTrack(currentTrack.id) : null;
 
   const effectiveDuration = duration || currentTrack?.durationSec || 218;
@@ -495,7 +518,7 @@ export function PlayerBar({
     studioConsoleOpen,
     currentTrack?.id,
     isCurrentYouTube,
-    hasAnyYtDeck,
+    ytStageVisible,
     consoleDrawerTab,
     isDesktopViewport,
     measureStageSlot,
@@ -681,6 +704,15 @@ export function PlayerBar({
 
   const cancelTransition = useCallback(
     (stopIncoming = true) => {
+      if (ytWaitCancelRef.current) {
+        ytWaitCancelRef.current();
+        ytWaitCancelRef.current = null;
+      }
+      if (exitTimerRef.current !== null) {
+        window.clearTimeout(exitTimerRef.current);
+        exitTimerRef.current = null;
+        exitTimerTrackIdRef.current = '';
+      }
       const session = transitionRef.current;
       if (!session) return;
 
@@ -697,6 +729,9 @@ export function PlayerBar({
         } else {
           const inYt = session.incomingYtDeckIdx;
           ytStartZeroRef.current[inYt] = false;
+          ytPreRolledRef.current[inYt] = false;
+          ytPrerollStartSecRef.current[inYt] = 0;
+          ytDeckModeRef.current[inYt] = 'idle';
           setYtSlotTracks((prev) => {
             const next: [Track | null, Track | null] = [...prev] as [
               Track | null,
@@ -714,6 +749,7 @@ export function PlayerBar({
           outDeck.volume = effectiveGainRef.current;
         }
       } else {
+        ytDeckModeRef.current[session.outgoingYtDeckIdx] = 'active';
         setYtDeckVolume(session.outgoingYtDeckIdx, effectiveGainRef.current);
       }
     },
@@ -748,12 +784,18 @@ export function PlayerBar({
         }
       }
       ytStartZeroRef.current = [false, false];
+      ytPreRolledRef.current = [false, false];
+      ytPrerollStartSecRef.current = [0, 0];
+      ytDeckModeRef.current = ['idle', 'idle'];
       setYtSlotTracks([null, null]);
     } else {
       const inYt = session.incomingYtDeckIdx;
       activeYtDeckIdxRef.current = inYt;
       setActiveYtDeckIdx(inYt);
       ytStartZeroRef.current[inYt] = false;
+      ytPreRolledRef.current[inYt] = false;
+      ytPrerollStartSecRef.current[inYt] = 0;
+      ytDeckModeRef.current[inYt] = 'active';
       setYtDeckVolume(inYt, effectiveGainRef.current);
 
       const inPlayer = ytPlayersRef.current[inYt];
@@ -771,6 +813,9 @@ export function PlayerBar({
       if (session.outgoingKind === 'youtube') {
         const outYt = session.outgoingYtDeckIdx;
         ytStartZeroRef.current[outYt] = false;
+        ytPreRolledRef.current[outYt] = false;
+        ytPrerollStartSecRef.current[outYt] = 0;
+        ytDeckModeRef.current[outYt] = 'idle';
         setYtSlotTracks((prev) => {
           const next: [Track | null, Track | null] = [...prev] as [
             Track | null,
@@ -849,10 +894,34 @@ export function PlayerBar({
         if (progress >= 1) {
           finishTransition();
         }
-      }, 50);
+      }, CROSSFADE_TICK_MS);
     },
     [applyFadeVolumes, finishTransition]
   );
+
+  const clearExitTimer = useCallback(() => {
+    if (exitTimerRef.current !== null) {
+      window.clearTimeout(exitTimerRef.current);
+      exitTimerRef.current = null;
+    }
+    exitTimerTrackIdRef.current = '';
+  }, []);
+
+  const clearYtStandbySlot = useCallback((slotIdx: 0 | 1) => {
+    ytDeckModeRef.current[slotIdx] = 'idle';
+    ytPreRolledRef.current[slotIdx] = false;
+    ytStartZeroRef.current[slotIdx] = false;
+    ytPrerollStartSecRef.current[slotIdx] = 0;
+    setYtSlotTracks((prev) => {
+      if (!prev[slotIdx]) return prev;
+      const next: [Track | null, Track | null] = [...prev] as [
+        Track | null,
+        Track | null,
+      ];
+      next[slotIdx] = null;
+      return next;
+    });
+  }, []);
 
   const preloadIdleDeckForTrack = useCallback(
     (track: Track | null) => {
@@ -883,49 +952,214 @@ export function PlayerBar({
     [getDeck]
   );
 
-  const maybeStartCrossfade = useCallback(
-    (curSec: number, durSec: number, sourceKind: 'audio' | 'youtube') => {
-      const track = currentTrackRef.current;
-      if (!track || !isPlayingRef.current) return;
-      if (transitionRef.current) return;
-      if (!Number.isFinite(durSec) || durSec <= 4) return;
-
-      const hookWin = getHookForTrack(track, durSec);
-      const effectiveEnd = hookModeRef.current
-        ? Math.min(durSec, hookWin.endSec)
-        : durSec;
-      const remaining = effectiveEnd - curSec;
+  const precueStandbyYtForTrack = useCallback(
+    (track: Track | null) => {
+      if (!track || transitionRef.current) return;
+      const curIsYt =
+        track.playbackRights === 'embed-only' && Boolean(track.embedId);
+      const standbySlot: 0 | 1 = curIsYt
+        ? activeYtDeckIdxRef.current === 0
+          ? 1
+          : 0
+        : 0;
 
       if (repeatModeRef.current === 'one') {
-        if (hookModeRef.current && remaining <= 0.25) {
-          if (sourceKind === 'youtube') {
-            ytPlayersRef.current[activeYtDeckIdxRef.current]?.seekTo(
-              hookWin.startSec,
-              true
-            );
-          } else {
-            const deck = getDeck(activeDeckIdxRef.current);
-            if (deck) deck.currentTime = hookWin.startSec;
-          }
-          setCurrentTime(hookWin.startSec);
+        if (
+          ytDeckModeRef.current[standbySlot] === 'precue' ||
+          ytDeckModeRef.current[standbySlot] === 'preroll'
+        ) {
+          clearYtStandbySlot(standbySlot);
         }
         return;
       }
 
-      if (transitionLockFromIdRef.current === track.id) return;
-
-      // If user sought past hook end in Hook Mode, advance cleanly
-      if (hookModeRef.current && remaining <= 0.15) {
-        transitionLockFromIdRef.current = track.id;
-        onPlaybackEndedRef.current();
+      const next = getNextTrackRef.current(track.id);
+      if (
+        !next ||
+        next.id === track.id ||
+        next.playbackRights !== 'embed-only' ||
+        !next.embedId
+      ) {
+        if (
+          ytDeckModeRef.current[standbySlot] === 'precue' ||
+          ytDeckModeRef.current[standbySlot] === 'preroll'
+        ) {
+          clearYtStandbySlot(standbySlot);
+        }
         return;
       }
 
-      const triggerWindow = Math.min(
-        CROSSFADE_TARGET_SEC,
-        Math.max(2, effectiveEnd * 0.45)
-      );
-      if (remaining > triggerWindow || remaining <= 0.25) return;
+      if (
+        ytDeckModeRef.current[standbySlot] === 'preroll' &&
+        ytDeckTrackIdRef.current[standbySlot] === next.id
+      ) {
+        return;
+      }
+
+      const hookStart = hookModeRef.current
+        ? getHookForTrack(next, next.durationSec || 218).startSec
+        : 0;
+
+      ytDeckModeRef.current[standbySlot] = 'precue';
+      ytPreRolledRef.current[standbySlot] = false;
+      ytStartZeroRef.current[standbySlot] = true;
+      ytPrerollStartSecRef.current[standbySlot] = hookStart;
+
+      const standbyPlayer = ytPlayersRef.current[standbySlot];
+      if (
+        ytDeckTrackIdRef.current[standbySlot] === next.id &&
+        standbyPlayer &&
+        ytReadyRef.current[standbySlot]
+      ) {
+        try {
+          standbyPlayer.mute();
+          standbyPlayer.setVolume(0);
+          standbyPlayer.cueVideoById?.({
+            videoId: next.embedId,
+            startSeconds: hookStart,
+          });
+        } catch {
+          // ignore
+        }
+        return;
+      }
+
+      setYtSlotTracks((prev) => {
+        if (prev[standbySlot]?.id === next.id) return prev;
+        const updated: [Track | null, Track | null] = [...prev] as [
+          Track | null,
+          Track | null,
+        ];
+        updated[standbySlot] = next;
+        return updated;
+      });
+    },
+    [clearYtStandbySlot, getHookForTrack]
+  );
+
+  const abortStandbyPreroll = useCallback(() => {
+    clearExitTimer();
+    ([0, 1] as const).forEach((slotIdx) => {
+      if (ytDeckModeRef.current[slotIdx] === 'preroll') {
+        ytDeckModeRef.current[slotIdx] = 'precue';
+        ytPreRolledRef.current[slotIdx] = false;
+        const standbyTrack = ytDesiredTrackRef.current[slotIdx];
+        const standbyPlayer = ytPlayersRef.current[slotIdx];
+        if (standbyTrack?.embedId && standbyPlayer && ytReadyRef.current[slotIdx]) {
+          const hookStart = hookModeRef.current
+            ? getHookForTrack(standbyTrack, standbyTrack.durationSec || 218).startSec
+            : 0;
+          try {
+            standbyPlayer.pauseVideo();
+            standbyPlayer.mute();
+            standbyPlayer.setVolume(0);
+            standbyPlayer.cueVideoById?.({
+              videoId: standbyTrack.embedId,
+              startSeconds: hookStart,
+            });
+          } catch {
+            // ignore
+          }
+        }
+      }
+      if (audioPreRolledRef.current[slotIdx]) {
+        audioPreRolledRef.current[slotIdx] = false;
+        if (slotIdx !== activeDeckIdxRef.current) {
+          const deck = getDeck(slotIdx);
+          try {
+            deck?.pause();
+          } catch {
+            // ignore
+          }
+        }
+      }
+    });
+  }, [clearExitTimer, getDeck, getHookForTrack]);
+
+  const syncYtPrerolledDrift = useCallback(
+    (slotIdx: 0 | 1, targetEntrySec: number) => {
+      const player = ytPlayersRef.current[slotIdx];
+      if (!player || !ytReadyRef.current[slotIdx]) return;
+      try {
+        const cur = player.getCurrentTime();
+        if (!Number.isFinite(cur)) return;
+        const drift = targetEntrySec - cur;
+        ytPrerollLatencyRef.current = Math.min(
+          1.5,
+          Math.max(0, ytPrerollLatencyRef.current + 0.6 * drift)
+        );
+        if (Math.abs(drift) > PREROLL_DRIFT_SNAP_SEC) {
+          player.seekTo(targetEntrySec, true);
+        }
+      } catch {
+        // ignore
+      }
+    },
+    []
+  );
+
+  const waitForYtDeckPlaying = useCallback(
+    (slotIdx: 0 | 1, maxMs = 1500): Promise<boolean> => {
+      if (ytWaitCancelRef.current) {
+        ytWaitCancelRef.current();
+        ytWaitCancelRef.current = null;
+      }
+      return new Promise((resolve) => {
+        const player = ytPlayersRef.current[slotIdx];
+        if (!player) {
+          resolve(false);
+          return;
+        }
+        let settled = false;
+        let pollId: number | null = null;
+        let timeoutId: number | null = null;
+        const finish = (ok: boolean) => {
+          if (settled) return;
+          settled = true;
+          if (pollId !== null) window.clearInterval(pollId);
+          if (timeoutId !== null) window.clearTimeout(timeoutId);
+          if (ytWaitCancelRef.current === cancel) {
+            ytWaitCancelRef.current = null;
+          }
+          resolve(ok);
+        };
+        const cancel = () => finish(false);
+        ytWaitCancelRef.current = cancel;
+
+        pollId = window.setInterval(() => {
+          if (!isPlayingRef.current || ytDeckModeRef.current[slotIdx] !== 'crossfade') {
+            finish(false);
+            return;
+          }
+          try {
+            const p = ytPlayersRef.current[slotIdx];
+            if (p && ytReadyRef.current[slotIdx] && p.getPlayerState?.() === 1) {
+              finish(true);
+            }
+          } catch {
+            finish(false);
+          }
+        }, 50);
+
+        timeoutId = window.setTimeout(() => finish(false), maxMs);
+      });
+    },
+    []
+  );
+
+  const triggerBajaoCrossfade = useCallback(
+    (sourceKind: 'audio' | 'youtube') => {
+      const track = currentTrackRef.current;
+      if (!track || !isPlayingRef.current) return;
+      if (transitionRef.current) return;
+      if (transitionLockFromIdRef.current === track.id) return;
+
+      const nowMs = Date.now();
+      if (nowMs - lastCrossfadeAttemptMsRef.current < CROSSFADE_ATTEMPT_DEBOUNCE_MS) {
+        return;
+      }
+      lastCrossfadeAttemptMsRef.current = nowMs;
+      clearExitTimer();
 
       const next = getNextTrackRef.current(track.id);
       if (!next || next.id === track.id) return;
@@ -933,26 +1167,59 @@ export function PlayerBar({
       const nextIsYt =
         next.playbackRights === 'embed-only' && Boolean(next.embedId);
       const incomingKind: 'audio' | 'youtube' = nextIsYt ? 'youtube' : 'audio';
-
       if (incomingKind === 'audio' && !next.streamUrl) return;
 
       const outgoingAudioDeckIdx = activeDeckIdxRef.current;
       const incomingAudioDeckIdx: 0 | 1 = outgoingAudioDeckIdx === 0 ? 1 : 0;
-
       const outgoingYtDeckIdx = activeYtDeckIdxRef.current;
       const incomingYtDeckIdx: 0 | 1 =
         sourceKind === 'youtube' ? (outgoingYtDeckIdx === 0 ? 1 : 0) : 0;
 
-      const durationMs = Math.max(1500, Math.round(remaining * 1000));
+      // BPM-matched equal-power crossfade duration (1 musical bar, 1200ms..2400ms, default 1500ms)
+      const durationMs = getBpmCrossfadeMs(next.bpm);
       transitionLockFromIdRef.current = track.id;
 
       const nextStartSec = hookModeRef.current
         ? getHookForTrack(next, next.durationSec || 218).startSec
         : 0;
 
+      const beginFadeInterval = () => {
+        if (
+          !isPlayingRef.current ||
+          currentTrackRef.current?.id !== track.id ||
+          transitionRef.current
+        ) {
+          return;
+        }
+        const session: TransitionSession = {
+          fromTrackId: track.id,
+          toTrack: next,
+          outgoingKind: sourceKind,
+          incomingKind,
+          outgoingAudioDeckIdx,
+          incomingAudioDeckIdx,
+          outgoingYtDeckIdx,
+          incomingYtDeckIdx,
+          durationMs,
+          elapsedMs: 0,
+          lastTickMs: performance.now(),
+          stopTicker: null,
+        };
+
+        transitionRef.current = session;
+        setCrossfadeStatus({
+          nextTitle: next.title,
+          remainingSec: Math.max(1, Math.ceil(durationMs / 1000)),
+        });
+        startTransitionInterval(session);
+      };
+
       if (incomingKind === 'audio') {
         const inDeck = getDeck(incomingAudioDeckIdx);
-        if (!inDeck || !next.streamUrl) return;
+        if (!inDeck || !next.streamUrl) {
+          transitionLockFromIdRef.current = '';
+          return;
+        }
 
         const resolvedNextUrl = new URL(next.streamUrl, window.location.origin).href;
         if (
@@ -966,11 +1233,27 @@ export function PlayerBar({
           deckTrackIdRef.current[incomingAudioDeckIdx] = next.id;
         }
 
-        try {
-          inDeck.currentTime = nextStartSec;
-        } catch {
-          // ignore if metadata not yet loaded
+        const wasAudioPrerolled =
+          audioPreRolledRef.current[incomingAudioDeckIdx] && !inDeck.paused;
+        audioPreRolledRef.current[incomingAudioDeckIdx] = false;
+
+        if (wasAudioPrerolled) {
+          const drift = nextStartSec - (inDeck.currentTime || 0);
+          if (Math.abs(drift) > PREROLL_DRIFT_SNAP_SEC) {
+            try {
+              inDeck.currentTime = nextStartSec;
+            } catch {
+              // ignore
+            }
+          }
+        } else {
+          try {
+            inDeck.currentTime = nextStartSec;
+          } catch {
+            // ignore if metadata not yet loaded
+          }
         }
+
         inDeck.volume = 0;
         inDeck.play().catch((err: unknown) => {
           const name = (err as { name?: string })?.name;
@@ -978,11 +1261,39 @@ export function PlayerBar({
             cancelTransition(true);
           }
         });
-      } else {
-        ytStartZeroRef.current[incomingYtDeckIdx] = true;
-        if (sourceKind === 'audio') {
-          activeYtDeckIdxRef.current = incomingYtDeckIdx;
-          setActiveYtDeckIdx(incomingYtDeckIdx);
+        beginFadeInterval();
+        return;
+      }
+
+      // Incoming YouTube deck
+      const standbyPlayer = ytPlayersRef.current[incomingYtDeckIdx];
+      const alreadyPrerolledAndPlaying = Boolean(
+        ytPreRolledRef.current[incomingYtDeckIdx] &&
+          ytDeckTrackIdRef.current[incomingYtDeckIdx] === next.id &&
+          standbyPlayer &&
+          ytReadyRef.current[incomingYtDeckIdx] &&
+          standbyPlayer.getPlayerState?.() === 1
+      );
+
+      ytDeckModeRef.current[incomingYtDeckIdx] = 'crossfade';
+      ytStartZeroRef.current[incomingYtDeckIdx] = true;
+      if (sourceKind === 'audio') {
+        activeYtDeckIdxRef.current = incomingYtDeckIdx;
+        setActiveYtDeckIdx(incomingYtDeckIdx);
+      }
+
+      if (alreadyPrerolledAndPlaying && standbyPlayer) {
+        ytPreRolledRef.current[incomingYtDeckIdx] = false;
+        syncYtPrerolledDrift(incomingYtDeckIdx, nextStartSec);
+        try {
+          if (mutedRef.current || volumeRef.current === 0) {
+            standbyPlayer.mute();
+          } else {
+            standbyPlayer.unMute();
+            standbyPlayer.setVolume(0);
+          }
+        } catch {
+          // ignore
         }
         setYtSlotTracks((prev) => {
           const updated: [Track | null, Track | null] =
@@ -992,31 +1303,279 @@ export function PlayerBar({
           updated[incomingYtDeckIdx] = next;
           return updated;
         });
+        beginFadeInterval();
+        return;
       }
 
-      const session: TransitionSession = {
-        fromTrackId: track.id,
-        toTrack: next,
-        outgoingKind: sourceKind,
-        incomingKind,
-        outgoingAudioDeckIdx,
-        incomingAudioDeckIdx,
-        outgoingYtDeckIdx,
-        incomingYtDeckIdx,
-        durationMs,
-        elapsedMs: 0,
-        lastTickMs: performance.now(),
-        stopTicker: null,
-      };
-
-      transitionRef.current = session;
-      setCrossfadeStatus({
-        nextTitle: next.title,
-        remainingSec: Math.ceil(durationMs / 1000),
+      // Cold-start or cue-only standby deck: prime at volume 0 and wait up to 1.5s for PLAYING before fading
+      ytPreRolledRef.current[incomingYtDeckIdx] = false;
+      ytPrerollStartSecRef.current[incomingYtDeckIdx] = nextStartSec;
+      if (
+        standbyPlayer &&
+        ytReadyRef.current[incomingYtDeckIdx] &&
+        next.embedId
+      ) {
+        try {
+          if (mutedRef.current || volumeRef.current === 0) {
+            standbyPlayer.mute();
+          } else {
+            standbyPlayer.unMute();
+            standbyPlayer.setVolume(0);
+          }
+          if (ytDeckTrackIdRef.current[incomingYtDeckIdx] === next.id) {
+            standbyPlayer.seekTo(nextStartSec, true);
+          } else {
+            ytDeckTrackIdRef.current[incomingYtDeckIdx] = next.id;
+            standbyPlayer.loadVideoById?.({
+              videoId: next.embedId,
+              startSeconds: nextStartSec,
+            });
+          }
+          ytAwaitingPlayRef.current[incomingYtDeckIdx] = true;
+          ytAwaitingPlaySinceRef.current[incomingYtDeckIdx] = Date.now();
+          standbyPlayer.playVideo();
+        } catch {
+          // ignore
+        }
+      }
+      setYtSlotTracks((prev) => {
+        const updated: [Track | null, Track | null] =
+          sourceKind === 'youtube'
+            ? ([...prev] as [Track | null, Track | null])
+            : [null, null];
+        updated[incomingYtDeckIdx] = next;
+        return updated;
       });
-      startTransitionInterval(session);
+
+      void waitForYtDeckPlaying(incomingYtDeckIdx, 1500).then((isReady) => {
+        if (
+          !isPlayingRef.current ||
+          currentTrackRef.current?.id !== track.id ||
+          ytDeckModeRef.current[incomingYtDeckIdx] !== 'crossfade'
+        ) {
+          return;
+        }
+        if (!isReady) {
+          // Proceed with fade/handoff cleanly if standby is still buffering
+          if (ytPlayersRef.current[incomingYtDeckIdx]?.getPlayerState?.() !== 1) {
+            try {
+              ytPlayersRef.current[incomingYtDeckIdx]?.playVideo();
+            } catch {
+              // ignore
+            }
+          }
+        }
+        beginFadeInterval();
+      });
     },
-    [cancelTransition, getDeck, getHookForTrack, startTransitionInterval]
+    [
+      cancelTransition,
+      clearExitTimer,
+      getDeck,
+      getHookForTrack,
+      startTransitionInterval,
+      syncYtPrerolledDrift,
+      waitForYtDeckPlaying,
+    ]
+  );
+
+  const maybeStartCrossfade = useCallback(
+    (curSec: number, durSec: number, sourceKind: 'audio' | 'youtube') => {
+      const track = currentTrackRef.current;
+      if (!track || !isPlayingRef.current) return;
+      if (transitionRef.current) return;
+      if (!Number.isFinite(durSec) || durSec <= 4) return;
+
+      const hookWin = getHookForTrack(track, durSec);
+      // Hook Mode cuts at hook.endSec; Full Song Mode cuts at duration - 2s (just like bajao.party)
+      const exitTarget = hookModeRef.current
+        ? Math.min(durSec, hookWin.endSec)
+        : Math.max(4, durSec - FULL_SONG_CUTOFF_LEAD_SEC);
+      const remaining = exitTarget - curSec;
+
+      if (repeatModeRef.current === 'one') {
+        if (remaining <= 0.25) {
+          const loopStart = hookModeRef.current ? hookWin.startSec : 0;
+          if (sourceKind === 'youtube') {
+            ytPlayersRef.current[activeYtDeckIdxRef.current]?.seekTo(
+              loopStart,
+              true
+            );
+          } else {
+            const deck = getDeck(activeDeckIdxRef.current);
+            if (deck) deck.currentTime = loopStart;
+          }
+          setCurrentTime(loopStart);
+        }
+        return;
+      }
+
+      if (transitionLockFromIdRef.current === track.id) return;
+
+      const prerollLeadSec = getPrerollLeadSec();
+
+      // If playhead is safely ahead of preroll window (e.g. user sought back), abort any stale preroll
+      if (remaining > prerollLeadSec + 0.5) {
+        if (
+          exitTimerRef.current !== null ||
+          ytDeckModeRef.current[0] === 'preroll' ||
+          ytDeckModeRef.current[1] === 'preroll' ||
+          audioPreRolledRef.current[0] ||
+          audioPreRolledRef.current[1]
+        ) {
+          abortStandbyPreroll();
+        }
+        return;
+      }
+
+      const next = getNextTrackRef.current(track.id);
+      if (!next || next.id === track.id) return;
+
+      const nextIsYt =
+        next.playbackRights === 'embed-only' && Boolean(next.embedId);
+      const incomingKind: 'audio' | 'youtube' = nextIsYt ? 'youtube' : 'audio';
+      const nextStartSec = hookModeRef.current
+        ? getHookForTrack(next, next.durationSec || 218).startSec
+        : 0;
+
+      // Within bajao.party preroll window (3s normal / 6s slow): silently pre-roll standby deck + schedule exact exit cut
+      if (remaining > 0.05 && remaining <= prerollLeadSec) {
+        if (
+          exitTimerRef.current === null ||
+          exitTimerTrackIdRef.current !== track.id
+        ) {
+          clearExitTimer();
+          exitTimerTrackIdRef.current = track.id;
+          exitTimerRef.current = window.setTimeout(() => {
+            exitTimerRef.current = null;
+            exitTimerTrackIdRef.current = '';
+            if (
+              !isPlayingRef.current ||
+              transitionRef.current ||
+              currentTrackRef.current?.id !== track.id
+            ) {
+              return;
+            }
+            let liveCur = currentTimeRef.current;
+            try {
+              if (sourceKind === 'youtube') {
+                const p = ytPlayersRef.current[activeYtDeckIdxRef.current];
+                const t = p?.getCurrentTime();
+                if (typeof t === 'number' && Number.isFinite(t)) liveCur = t;
+              } else {
+                const d = getDeck(activeDeckIdxRef.current);
+                if (d && Number.isFinite(d.currentTime)) liveCur = d.currentTime;
+              }
+            } catch {
+              // ignore
+            }
+            if (liveCur < exitTarget - 0.15) return;
+            triggerBajaoCrossfade(sourceKind);
+          }, Math.max(0, remaining * 1000));
+        }
+
+        const canPrerollOffset =
+          remaining >= PREROLL_MIN_REMAINING_SEC &&
+          nextStartSec >= remaining + 0.2;
+
+        if (canPrerollOffset) {
+          const prerollStartSec = Math.max(
+            0,
+            Math.min(
+              nextStartSec - 0.1,
+              nextStartSec - remaining + ytPrerollLatencyRef.current
+            )
+          );
+
+          if (incomingKind === 'youtube') {
+            const outgoingYtDeckIdx = activeYtDeckIdxRef.current;
+            const incomingYtDeckIdx: 0 | 1 =
+              sourceKind === 'youtube' ? (outgoingYtDeckIdx === 0 ? 1 : 0) : 0;
+
+            if (
+              !ytPreRolledRef.current[incomingYtDeckIdx] ||
+              ytDeckTrackIdRef.current[incomingYtDeckIdx] !== next.id
+            ) {
+              ytDeckModeRef.current[incomingYtDeckIdx] = 'preroll';
+              ytPreRolledRef.current[incomingYtDeckIdx] = true;
+              ytStartZeroRef.current[incomingYtDeckIdx] = true;
+              ytPrerollStartSecRef.current[incomingYtDeckIdx] = prerollStartSec;
+
+              const standbyPlayer = ytPlayersRef.current[incomingYtDeckIdx];
+              if (
+                ytDeckTrackIdRef.current[incomingYtDeckIdx] === next.id &&
+                standbyPlayer &&
+                ytReadyRef.current[incomingYtDeckIdx]
+              ) {
+                try {
+                  if (mutedRef.current || volumeRef.current === 0) {
+                    standbyPlayer.mute();
+                  } else {
+                    standbyPlayer.unMute();
+                    standbyPlayer.setVolume(0);
+                  }
+                  standbyPlayer.seekTo(prerollStartSec, true);
+                  ytAwaitingPlayRef.current[incomingYtDeckIdx] = true;
+                  ytAwaitingPlaySinceRef.current[incomingYtDeckIdx] = Date.now();
+                  standbyPlayer.playVideo();
+                } catch {
+                  // ignore
+                }
+              } else {
+                setYtSlotTracks((prev) => {
+                  const updated: [Track | null, Track | null] =
+                    sourceKind === 'youtube'
+                      ? ([...prev] as [Track | null, Track | null])
+                      : [null, null];
+                  updated[incomingYtDeckIdx] = next;
+                  return updated;
+                });
+              }
+            }
+          } else if (next.streamUrl) {
+            const incomingAudioDeckIdx: 0 | 1 =
+              activeDeckIdxRef.current === 0 ? 1 : 0;
+            const inDeck = getDeck(incomingAudioDeckIdx);
+            if (inDeck && !audioPreRolledRef.current[incomingAudioDeckIdx]) {
+              const resolvedNextUrl = new URL(next.streamUrl, window.location.origin).href;
+              if (
+                deckUrlRef.current[incomingAudioDeckIdx] !== resolvedNextUrl ||
+                deckTrackIdRef.current[incomingAudioDeckIdx] !== next.id
+              ) {
+                inDeck.pause();
+                inDeck.preload = 'auto';
+                inDeck.src = resolvedNextUrl;
+                deckUrlRef.current[incomingAudioDeckIdx] = resolvedNextUrl;
+                deckTrackIdRef.current[incomingAudioDeckIdx] = next.id;
+              }
+              try {
+                inDeck.currentTime = prerollStartSec;
+              } catch {
+                // ignore
+              }
+              inDeck.volume = 0;
+              audioPreRolledRef.current[incomingAudioDeckIdx] = true;
+              inDeck.play().catch(() => {
+                audioPreRolledRef.current[incomingAudioDeckIdx] = false;
+              });
+            }
+          }
+        }
+        return;
+      }
+
+      // Reached exitTarget (hook.endSec or duration - 2s): execute BPM-matched equal-power crossfade
+      if (remaining <= 0.05) {
+        triggerBajaoCrossfade(sourceKind);
+      }
+    },
+    [
+      abortStandbyPreroll,
+      clearExitTimer,
+      getDeck,
+      getHookForTrack,
+      triggerBajaoCrossfade,
+    ]
   );
 
   // Unified dual-deck HTML5 <audio> & YouTube handoff synchronization
@@ -1026,6 +1585,9 @@ export function PlayerBar({
       clearDeck(0);
       clearDeck(1);
       ytStartZeroRef.current = [false, false];
+      ytPreRolledRef.current = [false, false];
+      ytPrerollStartSecRef.current = [0, 0];
+      ytDeckModeRef.current = ['idle', 'idle'];
       setYtSlotTracks([null, null]);
       setMinimizedDrawerTab(null);
       setConsoleDrawerTab(null);
@@ -1036,10 +1598,24 @@ export function PlayerBar({
 
     if (isCurrentYouTube) {
       const activeYt = activeYtDeckIdxRef.current;
-      const alreadyActiveYt = ytDeckTrackIdRef.current[activeYt] === currentTrack.id;
+      const standbyYt: 0 | 1 = activeYt === 0 ? 1 : 0;
+      const alreadyActiveYt =
+        ytDeckTrackIdRef.current[activeYt] === currentTrack.id &&
+        ytDeckModeRef.current[activeYt] === 'active';
 
       if (!alreadyActiveYt) {
-        cancelTransition(true);
+        const warmedSlot: 0 | 1 | null =
+          ytDeckTrackIdRef.current[activeYt] === currentTrack.id &&
+          ytReadyRef.current[activeYt] &&
+          ytPlayersRef.current[activeYt]
+            ? activeYt
+            : ytDeckTrackIdRef.current[standbyYt] === currentTrack.id &&
+                ytReadyRef.current[standbyYt] &&
+                ytPlayersRef.current[standbyYt]
+              ? standbyYt
+              : null;
+
+        cancelTransition(false);
         clearDeck(0);
         clearDeck(1);
         transitionLockFromIdRef.current = '';
@@ -1050,10 +1626,56 @@ export function PlayerBar({
         setCurrentTime(startSec);
         setDuration(currentTrack.durationSec || 0);
 
-        activeYtDeckIdxRef.current = 0;
-        setActiveYtDeckIdx(0);
-        ytStartZeroRef.current = [false, false];
-        setYtSlotTracks([currentTrack, null]);
+        if (warmedSlot !== null) {
+          const prevSlot: 0 | 1 = warmedSlot === 0 ? 1 : 0;
+          const wasPrecueOnly = ytDeckModeRef.current[warmedSlot] === 'precue';
+          activeYtDeckIdxRef.current = warmedSlot;
+          setActiveYtDeckIdx(warmedSlot);
+          ytDeckModeRef.current[warmedSlot] = 'active';
+          ytStartZeroRef.current[warmedSlot] = false;
+          ytPreRolledRef.current[warmedSlot] = false;
+          ytPrerollStartSecRef.current[warmedSlot] = 0;
+
+          ytDeckModeRef.current[prevSlot] = 'idle';
+          ytStartZeroRef.current[prevSlot] = false;
+          ytPreRolledRef.current[prevSlot] = false;
+          ytPrerollStartSecRef.current[prevSlot] = 0;
+
+          setYtSlotTracks(() => {
+            const nextSlots: [Track | null, Track | null] = [null, null];
+            nextSlots[warmedSlot] = currentTrack;
+            return nextSlots;
+          });
+
+          const promotedPlayer = ytPlayersRef.current[warmedSlot];
+          if (promotedPlayer) {
+            setYtDeckVolume(warmedSlot, effectiveGainRef.current);
+            if (wasPrecueOnly && startSec > 0) {
+              try {
+                promotedPlayer.seekTo(startSec, true);
+              } catch {
+                // ignore
+              }
+            }
+            if (isPlayingRef.current) {
+              ytAwaitingPlayRef.current[warmedSlot] = true;
+              ytAwaitingPlaySinceRef.current[warmedSlot] = Date.now();
+              try {
+                promotedPlayer.playVideo();
+              } catch {
+                // ignore
+              }
+            }
+          }
+        } else {
+          activeYtDeckIdxRef.current = 0;
+          setActiveYtDeckIdx(0);
+          ytStartZeroRef.current = [false, false];
+          ytPreRolledRef.current = [false, false];
+          ytPrerollStartSecRef.current = [0, 0];
+          ytDeckModeRef.current = ['active', 'idle'];
+          setYtSlotTracks([currentTrack, null]);
+        }
       }
       return;
     }
@@ -1075,6 +1697,9 @@ export function PlayerBar({
       cancelTransition(true);
       clearDeck(idleIdx);
       ytStartZeroRef.current = [false, false];
+      ytPreRolledRef.current = [false, false];
+      ytPrerollStartSecRef.current = [0, 0];
+      ytDeckModeRef.current = ['idle', 'idle'];
       setYtSlotTracks([null, null]);
       transitionLockFromIdRef.current = '';
 
@@ -1151,25 +1776,52 @@ export function PlayerBar({
         return;
       }
 
-      const startZero = ytStartZeroRef.current[slotIdx];
-      const shouldAutoPlay = isPlayingRef.current || startZero;
+      const slotMode = ytDeckModeRef.current[slotIdx];
+      const isPrecueOnly = slotMode === 'precue';
+      const startZero =
+        ytStartZeroRef.current[slotIdx] ||
+        slotMode === 'precue' ||
+        slotMode === 'preroll';
+      const shouldAutoPlay =
+        !isPrecueOnly &&
+        (isPlayingRef.current ||
+          slotMode === 'crossfade' ||
+          slotMode === 'preroll');
       const hookStartSec = hookModeRef.current
         ? getHookForTrack(track, track.durationSec || 218).startSec
         : 0;
+      const targetStartSec =
+        (slotMode === 'preroll' || slotMode === 'crossfade') &&
+        ytPreRolledRef.current[slotIdx]
+          ? ytPrerollStartSecRef.current[slotIdx]
+          : hookStartSec;
 
       // Fast path: persistent player already created & ready -> reuse via loadVideoById (no iframe rebuild!)
       if (existingPlayer && ytReadyRef.current[slotIdx]) {
         const sameTrack = ytDeckTrackIdRef.current[slotIdx] === track.id;
         ytDeckTrackIdRef.current[slotIdx] = track.id;
-        ytBufferingSinceRef.current = null;
+        if (slotIdx === activeYtDeckIdxRef.current && slotMode === 'active') {
+          ytBufferingSinceRef.current = null;
+        }
         if (!sameTrack) {
           ytEmbedRetryIdxRef.current[slotIdx] = 0;
         }
 
-        if (startZero) {
+        if (isPrecueOnly) {
           try {
-            existingPlayer.unMute();
+            existingPlayer.mute();
             existingPlayer.setVolume(0);
+          } catch {
+            // ignore
+          }
+        } else if (startZero) {
+          try {
+            if (mutedRef.current || volumeRef.current === 0) {
+              existingPlayer.mute();
+            } else {
+              existingPlayer.unMute();
+              existingPlayer.setVolume(0);
+            }
           } catch {
             // ignore
           }
@@ -1180,22 +1832,24 @@ export function PlayerBar({
         if (!sameTrack) {
           ytAwaitingPlayRef.current[slotIdx] = shouldAutoPlay;
           ytAwaitingPlaySinceRef.current[slotIdx] = shouldAutoPlay ? Date.now() : 0;
-          setYtBuffering(true);
+          if (slotIdx === activeYtDeckIdxRef.current && slotMode === 'active') {
+            setYtBuffering(true);
+          }
           try {
             if (shouldAutoPlay && existingPlayer.loadVideoById) {
               existingPlayer.loadVideoById({
                 videoId: track.embedId,
-                startSeconds: hookStartSec,
+                startSeconds: targetStartSec,
               });
             } else if (!shouldAutoPlay && existingPlayer.cueVideoById) {
               existingPlayer.cueVideoById({
                 videoId: track.embedId,
-                startSeconds: hookStartSec,
+                startSeconds: targetStartSec,
               });
             } else {
               existingPlayer.loadVideoById?.({
                 videoId: track.embedId,
-                startSeconds: hookStartSec,
+                startSeconds: targetStartSec,
               });
             }
             if (shouldAutoPlay) {
@@ -1207,12 +1861,15 @@ export function PlayerBar({
             // ignore
           }
         } else if (shouldAutoPlay) {
-          ytAwaitingPlayRef.current[slotIdx] = true;
-          ytAwaitingPlaySinceRef.current[slotIdx] = Date.now();
-          try {
-            existingPlayer.playVideo();
-          } catch {
-            // ignore
+          const curState = existingPlayer.getPlayerState?.();
+          if (slotMode !== 'crossfade' || (curState !== 1 && curState !== 3)) {
+            ytAwaitingPlayRef.current[slotIdx] = true;
+            ytAwaitingPlaySinceRef.current[slotIdx] = Date.now();
+            try {
+              existingPlayer.playVideo();
+            } catch {
+              // ignore
+            }
           }
         }
         return;
@@ -1225,7 +1882,9 @@ export function PlayerBar({
       ytInitializingRef.current[slotIdx] = true;
       ytDeckTrackIdRef.current[slotIdx] = track.id;
       ytEmbedRetryIdxRef.current[slotIdx] = 0;
-      setYtBuffering(true);
+      if (slotIdx === activeYtDeckIdxRef.current && slotMode === 'active') {
+        setYtBuffering(true);
+      }
 
       loadYouTubeIframeApi().then(() => {
         const currentHost = slotIdx === 0 ? ytHost0Ref.current : ytHost1Ref.current;
@@ -1280,21 +1939,71 @@ export function PlayerBar({
                 } catch {
                   // ignore
                 }
-                setYtBuffering(false);
+                if (slotIdx === activeYtDeckIdxRef.current) {
+                  setYtBuffering(false);
+                }
                 return;
               }
 
-              const latestStartZero = ytStartZeroRef.current[slotIdx];
-              const latestShouldPlay = isPlayingRef.current || latestStartZero;
+              const latestMode = ytDeckModeRef.current[slotIdx];
+              const latestIsPrecue = latestMode === 'precue';
+              const latestStartZero =
+                ytStartZeroRef.current[slotIdx] ||
+                latestIsPrecue ||
+                latestMode === 'preroll';
+              const latestShouldPlay =
+                !latestIsPrecue &&
+                (isPlayingRef.current ||
+                  latestMode === 'crossfade' ||
+                  latestMode === 'preroll');
               const latestHookStart = hookModeRef.current
                 ? getHookForTrack(latestTrack, latestTrack.durationSec || 218).startSec
                 : 0;
+              const latestTargetStart =
+                (latestMode === 'preroll' || latestMode === 'crossfade') &&
+                ytPreRolledRef.current[slotIdx]
+                  ? ytPrerollStartSecRef.current[slotIdx]
+                  : latestHookStart;
 
-              if (latestStartZero) {
-                event.target.unMute();
-                event.target.setVolume(0);
+              if (latestIsPrecue) {
+                try {
+                  event.target.mute();
+                  event.target.setVolume(0);
+                } catch {
+                  // ignore
+                }
+              } else if (latestStartZero) {
+                try {
+                  if (mutedRef.current || volumeRef.current === 0) {
+                    event.target.mute();
+                  } else {
+                    event.target.unMute();
+                    event.target.setVolume(0);
+                  }
+                } catch {
+                  // ignore
+                }
               } else {
                 setYtDeckVolume(slotIdx, effectiveGainRef.current);
+              }
+
+              if (latestIsPrecue) {
+                ytDeckTrackIdRef.current[slotIdx] = latestTrack.id;
+                if (
+                  (latestTrack.embedId !== initialVideoId || latestTargetStart > 0) &&
+                  event.target.cueVideoById
+                ) {
+                  try {
+                    event.target.cueVideoById({
+                      videoId: latestTrack.embedId,
+                      startSeconds: latestTargetStart,
+                    });
+                  } catch {
+                    // ignore
+                  }
+                }
+                ytAwaitingPlayRef.current[slotIdx] = false;
+                return;
               }
 
               if (
@@ -1304,17 +2013,21 @@ export function PlayerBar({
                 ytDeckTrackIdRef.current[slotIdx] = latestTrack.id;
                 event.target.loadVideoById({
                   videoId: latestTrack.embedId,
-                  startSeconds: latestHookStart,
+                  startSeconds: latestTargetStart,
                 });
-              } else if (latestHookStart > 0) {
+              } else if (latestTargetStart > 0) {
                 try {
-                  event.target.seekTo(latestHookStart, true);
+                  event.target.seekTo(latestTargetStart, true);
                 } catch {
                   // ignore
                 }
               }
 
-              if (!latestStartZero && slotIdx === activeYtDeckIdxRef.current) {
+              if (
+                !latestStartZero &&
+                slotIdx === activeYtDeckIdxRef.current &&
+                latestMode === 'active'
+              ) {
                 const ytDur = event.target.getDuration();
                 if (Number.isFinite(ytDur) && ytDur > 0) {
                   setDuration(ytDur);
@@ -1329,7 +2042,9 @@ export function PlayerBar({
                 syncMediaSessionRef.current();
               } else {
                 ytAwaitingPlayRef.current[slotIdx] = false;
-                setYtBuffering(false);
+                if (slotIdx === activeYtDeckIdxRef.current) {
+                  setYtBuffering(false);
+                }
               }
             },
             onStateChange: (event) => {
@@ -1352,8 +2067,15 @@ export function PlayerBar({
                   transitionRef.current.incomingYtDeckIdx === slotIdx
               );
 
+              const isActiveSlot =
+                slotIdx === activeYtDeckIdxRef.current &&
+                ytDeckModeRef.current[slotIdx] === 'active';
+              const isStandbyWarmup =
+                ytDeckModeRef.current[slotIdx] === 'precue' ||
+                ytDeckModeRef.current[slotIdx] === 'preroll';
+
               if (event.data === BUFFERING || event.data === UNSTARTED) {
-                if (slotIdx === activeYtDeckIdxRef.current && isPlayingRef.current) {
+                if (isActiveSlot && isPlayingRef.current) {
                   setYtBuffering(true);
                   if (ytBufferingSinceRef.current === null) {
                     ytBufferingSinceRef.current = Date.now();
@@ -1364,12 +2086,14 @@ export function PlayerBar({
 
               if (event.data === PLAYING) {
                 consecutiveYtErrorsRef.current = 0;
-                ytBufferingSinceRef.current = null;
                 ytAwaitingPlayRef.current[slotIdx] = false;
                 ytAwaitingPlaySinceRef.current[slotIdx] = 0;
-                setYtBuffering(false);
+                if (isActiveSlot) {
+                  ytBufferingSinceRef.current = null;
+                  setYtBuffering(false);
+                }
                 keepAliveAudioRef.current?.play().catch(() => {});
-                if (!transitionRef.current && slotIdx === activeYtDeckIdxRef.current) {
+                if (!transitionRef.current && isActiveSlot) {
                   const ytDur = event.target.getDuration();
                   if (Number.isFinite(ytDur) && ytDur > 0) {
                     setDuration(ytDur);
@@ -1380,6 +2104,10 @@ export function PlayerBar({
                   window.setTimeout(() => syncMediaSessionRef.current(), 1200);
                 }
               } else if (event.data === PAUSED || event.data === CUED) {
+                if (ytDeckModeRef.current[slotIdx] === 'precue') {
+                  return;
+                }
+
                 const isAwaitingPlay =
                   ytAwaitingPlayRef.current[slotIdx] &&
                   Date.now() - ytAwaitingPlaySinceRef.current[slotIdx] < 8000;
@@ -1397,8 +2125,10 @@ export function PlayerBar({
                   return;
                 }
 
-                ytBufferingSinceRef.current = null;
-                setYtBuffering(false);
+                if (isActiveSlot) {
+                  ytBufferingSinceRef.current = null;
+                  setYtBuffering(false);
+                }
                 const isBackgroundOrFocusLoss =
                   document.hidden ||
                   !document.hasFocus() ||
@@ -1406,7 +2136,8 @@ export function PlayerBar({
                 if (
                   isBackgroundOrFocusLoss &&
                   !userPausedRef.current &&
-                  isPlayingRef.current
+                  isPlayingRef.current &&
+                  !isStandbyWarmup
                 ) {
                   keepAliveAudioRef.current?.play().catch(() => {});
                   try {
@@ -1438,21 +2169,21 @@ export function PlayerBar({
                 if (
                   !transitionRef.current &&
                   !isIncomingDuringFade &&
-                  slotIdx === activeYtDeckIdxRef.current
+                  !isStandbyWarmup &&
+                  isActiveSlot
                 ) {
                   userPausedRef.current = true;
                   onSetPlayingStateRef.current(false);
                 }
               } else if (event.data === ENDED) {
-                ytBufferingSinceRef.current = null;
+                if (isActiveSlot) {
+                  ytBufferingSinceRef.current = null;
+                  setYtBuffering(false);
+                }
                 ytAwaitingPlayRef.current[slotIdx] = false;
-                setYtBuffering(false);
                 if (isOutgoingDuringFade) {
                   finishTransition();
-                } else if (
-                  !transitionRef.current &&
-                  slotIdx === activeYtDeckIdxRef.current
-                ) {
+                } else if (!transitionRef.current && isActiveSlot) {
                   if (repeatModeRef.current === 'one') {
                     const desired = ytDesiredTrackRef.current[slotIdx];
                     const restartAt =
@@ -1468,9 +2199,15 @@ export function PlayerBar({
               }
             },
             onError: () => {
-              ytBufferingSinceRef.current = null;
+              const isStandbySlot =
+                ytDeckModeRef.current[slotIdx] === 'precue' ||
+                ytDeckModeRef.current[slotIdx] === 'preroll' ||
+                slotIdx !== activeYtDeckIdxRef.current;
+              if (!isStandbySlot) {
+                ytBufferingSinceRef.current = null;
+                setYtBuffering(false);
+              }
               ytAwaitingPlayRef.current[slotIdx] = false;
-              setYtBuffering(false);
               const desiredTrack = ytDesiredTrackRef.current[slotIdx];
               if (!desiredTrack) return;
 
@@ -1486,14 +2223,23 @@ export function PlayerBar({
                         .startSec
                     : 0;
                   try {
-                    setYtBuffering(true);
-                    ytBufferingSinceRef.current = Date.now();
-                    player.loadVideoById?.({
-                      videoId: backupVideoId,
-                      startSeconds: hookStart,
-                    });
-                    if (isPlayingRef.current || ytStartZeroRef.current[slotIdx]) {
-                      player.playVideo();
+                    if (!isStandbySlot) {
+                      setYtBuffering(true);
+                      ytBufferingSinceRef.current = Date.now();
+                    }
+                    if (ytDeckModeRef.current[slotIdx] === 'precue') {
+                      player.cueVideoById?.({
+                        videoId: backupVideoId,
+                        startSeconds: hookStart,
+                      });
+                    } else {
+                      player.loadVideoById?.({
+                        videoId: backupVideoId,
+                        startSeconds: hookStart,
+                      });
+                      if (isPlayingRef.current || ytStartZeroRef.current[slotIdx]) {
+                        player.playVideo();
+                      }
                     }
                     return;
                   } catch {
@@ -1502,8 +2248,12 @@ export function PlayerBar({
                 }
               }
 
-              if (slotIdx !== activeYtDeckIdxRef.current && transitionRef.current) {
-                cancelTransition(true);
+              if (isStandbySlot) {
+                if (transitionRef.current) {
+                  cancelTransition(true);
+                } else {
+                  clearYtStandbySlot(slotIdx);
+                }
                 return;
               }
               consecutiveYtErrorsRef.current += 1;
@@ -1584,10 +2334,12 @@ export function PlayerBar({
     }
   }, [isPlaying, isCurrentYouTube, currentTrack?.id, ytSlotTracks]);
 
-  // Sync Play/Pause across active and transitioning YouTube decks
+  // Sync Play/Pause across active and actively pre-rolling/crossfading YouTube decks (never auto-play precue-only deck)
   useEffect(() => {
     ([0, 1] as const).forEach((slotIdx) => {
       if (!ytSlotTracks[slotIdx]) return;
+      const slotMode = ytDeckModeRef.current[slotIdx];
+      if (slotMode === 'precue') return;
       const player = ytPlayersRef.current[slotIdx];
       if (!player || !ytReadyRef.current[slotIdx]) return;
       try {
@@ -1605,14 +2357,24 @@ export function PlayerBar({
     });
   }, [isPlaying, ytSlotTracks]);
 
-  // Preload next direct-audio track onto idle deck
+  // Preload next direct-audio track and pre-cue next YouTube track onto standby deck
   useEffect(() => {
     if (!currentTrack || !isPlaying) return;
     const timer = window.setTimeout(() => {
       preloadIdleDeckForTrack(currentTrack);
+      precueStandbyYtForTrack(currentTrack);
     }, 600);
     return () => window.clearTimeout(timer);
-  }, [currentTrack?.id, isPlaying, queue, preloadIdleDeckForTrack]);
+  }, [
+    currentTrack?.id,
+    isPlaying,
+    queue,
+    shuffle,
+    repeatMode,
+    hookMode,
+    preloadIdleDeckForTrack,
+    precueStandbyYtForTrack,
+  ]);
 
   // Maintain top-level Audio Focus loop
   useEffect(() => {
@@ -1628,7 +2390,7 @@ export function PlayerBar({
     } else {
       ka.pause();
     }
-  }, [isPlaying, currentTrack?.id, isCurrentYouTube, hasAnyYtDeck]);
+  }, [isPlaying, currentTrack?.id, isCurrentYouTube, ytStageVisible]);
 
   // High-resolution unthrottled playback monitor for HTML5 audio
   useEffect(() => {
@@ -1751,6 +2513,10 @@ export function PlayerBar({
 
       if (currentTrackRef.current?.playbackRights === 'embed-only') {
         ([0, 1] as const).forEach((slotIdx) => {
+          const slotMode = ytDeckModeRef.current[slotIdx];
+          if (slotMode !== 'active' && slotMode !== 'preroll' && slotMode !== 'crossfade') {
+            return;
+          }
           const player = ytPlayersRef.current[slotIdx];
           if (
             player &&
@@ -1819,31 +2585,60 @@ export function PlayerBar({
     }
 
     setYtDeckVolume(activeYtDeckIdxRef.current, effectiveMasterGain);
-  }, [volume, muted, audioDucking, effectiveMasterGain, hasAnyYtDeck, applyFadeVolumes, getDeck, setYtDeckVolume]);
+    const standbySlot: 0 | 1 = activeYtDeckIdxRef.current === 0 ? 1 : 0;
+    if (
+      ytDeckModeRef.current[standbySlot] === 'preroll' &&
+      ytPlayersRef.current[standbySlot] &&
+      ytReadyRef.current[standbySlot]
+    ) {
+      try {
+        if (muted || volume === 0) {
+          ytPlayersRef.current[standbySlot]!.mute();
+        } else {
+          ytPlayersRef.current[standbySlot]!.unMute();
+          ytPlayersRef.current[standbySlot]!.setVolume(0);
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }, [volume, muted, audioDucking, effectiveMasterGain, ytStageVisible, applyFadeVolumes, getDeck, setYtDeckVolume]);
 
-  // Cleanup crossfade ticker on unmount
+  // Cleanup crossfade ticker & exit timer on unmount
   useEffect(() => {
     return () => {
       if (transitionRef.current?.stopTicker) {
         transitionRef.current.stopTicker();
+      }
+      if (exitTimerRef.current !== null) {
+        window.clearTimeout(exitTimerRef.current);
+      }
+      if (ytWaitCancelRef.current) {
+        ytWaitCancelRef.current();
       }
     };
   }, []);
 
   const handleSeek = useCallback(
     (nextSec: number) => {
-      const dur = durationRef.current || currentTrackRef.current?.durationSec || 218;
+      const track = currentTrackRef.current;
+      const dur = durationRef.current || track?.durationSec || 218;
       const clampedSec = Math.max(0, Math.min(dur, nextSec));
-      const remainingAfterSeek = dur - clampedSec;
-      if (remainingAfterSeek > CROSSFADE_TARGET_SEC + 0.5) {
+      const exitTarget =
+        track && hookModeRef.current
+          ? Math.min(dur, getHookForTrack(track, dur).endSec)
+          : Math.max(4, dur - FULL_SONG_CUTOFF_LEAD_SEC);
+      const remainingAfterSeek = exitTarget - clampedSec;
+      const prerollLeadSec = getPrerollLeadSec();
+
+      if (remainingAfterSeek > prerollLeadSec + 0.5) {
         cancelTransition(true);
+        abortStandbyPreroll();
         transitionLockFromIdRef.current = '';
+        lastCrossfadeAttemptMsRef.current = 0;
       }
 
-      if (
-        currentTrackRef.current?.playbackRights === 'embed-only' &&
-        currentTrackRef.current.embedId
-      ) {
+      if (track?.playbackRights === 'embed-only' && track.embedId) {
         const activeSlot = activeYtDeckIdxRef.current;
         const player = ytPlayersRef.current[activeSlot];
         if (player && ytReadyRef.current[activeSlot]) {
@@ -1860,7 +2655,7 @@ export function PlayerBar({
       setCurrentTime(clampedSec);
       updateMediaSessionPosition(clampedSec, dur);
     },
-    [cancelTransition, getDeck]
+    [abortStandbyPreroll, cancelTransition, getDeck, getHookForTrack]
   );
 
   const handleSeekRef = useRef(handleSeek);
@@ -1921,13 +2716,14 @@ export function PlayerBar({
     (startSec: number, endSec: number) => {
       const track = currentTrackRef.current;
       if (!track) return;
+      abortStandbyPreroll();
       setCustomHooks((prev) => {
         const next = { ...prev, [track.id]: { startSec, endSec } };
         saveCustomHooksMap(next);
         return next;
       });
     },
-    []
+    [abortStandbyPreroll]
   );
 
   const handleResetHook = useCallback(() => {
@@ -2119,10 +2915,10 @@ export function PlayerBar({
   // 2. Compact floating stage (when minimized to bottom bar & not hidden; shifts cleanly alongside Queue/Recent drawer)
   // 3. Offscreen 1px hidden (only when player closed or stage minimized via ChevronDown/Tv toggle)
   const ytDockedInsideConsole = Boolean(
-    currentTrack && hasAnyYtDeck && studioConsoleOpen && stageRect
+    ytStageVisible && studioConsoleOpen && stageRect
   );
   const ytFloatingCorner = Boolean(
-    currentTrack && hasAnyYtDeck && !studioConsoleOpen && !ytDockMinimized
+    ytStageVisible && !studioConsoleOpen && !ytDockMinimized
   );
 
   return (
@@ -2273,7 +3069,7 @@ export function PlayerBar({
           ) : null}
 
           {/* Transparent Click Shield (tap to Play/Pause) with Bottom-Right Skip-Ad Passthrough Cutout */}
-          {currentTrack && hasAnyYtDeck ? (
+          {ytStageVisible ? (
             <>
               <button
                 type="button"
@@ -2299,23 +3095,27 @@ export function PlayerBar({
           role="dialog"
           aria-modal="true"
           aria-label="GullyGroove Studio Player"
-          className="fixed inset-0 z-50 flex items-start justify-center bg-[#06060B]/88 backdrop-blur-2xl p-2 sm:p-5 overflow-y-auto"
+          className="fixed inset-0 z-50 flex items-start justify-center bg-[#06060B]/88 backdrop-blur-2xl p-2 sm:p-4 overflow-y-auto"
         >
           <div
-            className={`w-full flex flex-col lg:flex-row items-stretch justify-center gap-4 my-auto transition-all duration-200 ${
-              consoleDrawerTab !== null ? 'max-w-5xl' : 'max-w-2xl xl:max-w-3xl'
+            className={`w-full flex flex-col lg:flex-row items-stretch justify-center gap-3.5 my-auto transition-all duration-200 ${
+              consoleDrawerTab !== null ? 'max-w-[880px]' : 'max-w-[500px] sm:max-w-[540px]'
             }`}
           >
             {/* Main Boombox Center Stage Console */}
-            <section className="flex-1 min-w-0 rounded-3xl bg-gradient-to-b from-[#131320] via-[#0E0E17] to-[#090910] border border-violet-500/25 shadow-[0_32px_100px_-20px_rgba(124,58,237,0.48)] overflow-hidden">
+            <section className="flex-1 min-w-0 rounded-2xl sm:rounded-3xl bg-gradient-to-b from-[#131320] via-[#0E0E17] to-[#090910] border border-violet-500/25 shadow-[0_32px_100px_-20px_rgba(124,58,237,0.48)] overflow-hidden">
               {/* Top Console Status & Window Controls */}
-              <div className="flex items-center justify-between gap-2 px-4 sm:px-5 py-3 border-b border-white/[0.08] bg-gradient-to-r from-violet-950/35 via-[#12121D] to-blue-950/25">
+              <div className="flex items-center justify-between gap-2 px-3 sm:px-4 py-2 border-b border-white/[0.08] bg-gradient-to-r from-violet-950/35 via-[#12121D] to-blue-950/25">
                 <div className="min-w-0 flex items-center gap-2 text-xs">
                   <span className="font-semibold text-blue-300 truncate">
                     {crossfadeStatus
                       ? `Crossfading · ${crossfadeStatus.remainingSec}s`
                       : hookMode
-                        ? 'Auto-Cut Hook Mode'
+                        ? isPlaying &&
+                          activeHookWindow.endSec - currentTime > 0 &&
+                          activeHookWindow.endSec - currentTime <= 60
+                          ? `Auto-Cut · Cut in ${Math.ceil(activeHookWindow.endSec - currentTime)}s`
+                          : 'Auto-Cut Hook Mode'
                         : isPlaying
                           ? 'Now Playing'
                           : 'Paused'}
@@ -2328,14 +3128,14 @@ export function PlayerBar({
                   </span>
                 </div>
 
-                <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex items-center gap-1 shrink-0">
                   <button
                     type="button"
                     onClick={() =>
                       setConsoleDrawerTab((prev) => (prev === 'queue' ? null : 'queue'))
                     }
                     aria-label="Toggle playlist queue"
-                    className={`inline-flex h-9 items-center gap-1.5 px-3 rounded-xl text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
+                    className={`inline-flex h-8 items-center gap-1.5 px-2.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
                       consoleDrawerTab === 'queue'
                         ? 'bg-gradient-to-r from-violet-600/35 to-blue-500/30 text-white border border-violet-400/40'
                         : 'text-slate-300 hover:text-white hover:bg-white/[0.06]'
@@ -2353,7 +3153,7 @@ export function PlayerBar({
                       )
                     }
                     aria-label="Toggle recently played"
-                    className={`inline-flex h-9 items-center gap-1.5 px-3 rounded-xl text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
+                    className={`inline-flex h-8 items-center gap-1.5 px-2.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
                       consoleDrawerTab === 'recent'
                         ? 'bg-gradient-to-r from-violet-600/35 to-blue-500/30 text-white border border-violet-400/40'
                         : 'text-slate-300 hover:text-white hover:bg-white/[0.06]'
@@ -2371,7 +3171,7 @@ export function PlayerBar({
                     }}
                     aria-label="Minimize to bottom player"
                     title="Minimize to bottom player"
-                    className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-300 hover:text-white hover:bg-white/[0.07] transition-colors"
+                    className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-300 hover:text-white hover:bg-white/[0.07] transition-colors"
                   >
                     <ChevronDown className="w-4 h-4" />
                   </button>
@@ -2387,7 +3187,7 @@ export function PlayerBar({
                       }}
                       aria-label="Close music player"
                       title="Close player"
-                      className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.07] transition-colors"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.07] transition-colors"
                     >
                       <X className="w-4 h-4" />
                     </button>
@@ -2396,13 +3196,13 @@ export function PlayerBar({
               </div>
 
               {/* Center Boombox Stage + Track Info + Waveform + Transport (ALWAYS visible even when Queue/Recent is open) */}
-              <div className="p-3 sm:p-5 space-y-4">
+              <div className="p-2 sm:p-3 space-y-1.5 sm:space-y-2">
                   {/* Boombox Frame: Left EQ + Center Video/Artwork Stage + Right EQ */}
-                  <div className="flex items-stretch gap-1.5 sm:gap-3.5 rounded-2xl bg-[#0B0B13] border border-white/[0.07] p-1.5 sm:p-3">
+                  <div className="flex items-stretch gap-1.5 sm:gap-2.5 rounded-xl sm:rounded-2xl bg-[#0B0B13] border border-white/[0.07] p-1.5 sm:p-2">
                     <BoomboxEqRack side="left" isPlaying={isPlaying} />
 
                     {/* Center Stage Slot (YouTube IFrame docks directly over this box!) */}
-                    <div className="flex-1 min-w-0 flex flex-col gap-2">
+                    <div className="flex-1 min-w-0 flex flex-col gap-1.5">
                       <div
                         ref={stageSlotRef}
                         className="gg-keep-dark relative aspect-video w-full rounded-xl overflow-hidden bg-[#07070B] border border-violet-500/25 shadow-[0_0_40px_-14px_rgba(124,58,237,0.5)]"
@@ -2421,7 +3221,7 @@ export function PlayerBar({
                             />
                             <div className="absolute inset-0 bg-gradient-to-t from-[#09090D] via-[#09090D]/55 to-transparent" />
                             <div className="relative z-10 flex items-center gap-4 px-4">
-                              <div className="h-24 w-24 sm:h-32 sm:w-32 shrink-0 overflow-hidden rounded-2xl border border-white/15 shadow-2xl">
+                              <div className="h-20 w-20 sm:h-24 sm:w-24 shrink-0 overflow-hidden rounded-2xl border border-white/15 shadow-2xl">
                                 <ArtworkImage
                                   src={currentTrack.coverUrl}
                                   alt={currentTrack.title}
@@ -2434,7 +3234,7 @@ export function PlayerBar({
 
                       {/* Next-Up Preview Strip Inside Boombox */}
                       {nextTrackPreview ? (
-                        <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.05] text-[11px]">
+                        <div className="flex items-center justify-between gap-2 px-2 py-1 rounded-lg bg-white/[0.03] border border-white/[0.05] text-[10px] sm:text-[11px]">
                           <div className="min-w-0 flex items-center gap-2">
                             <span className="font-mono-tabular font-semibold text-violet-300 shrink-0">
                               NEXT
@@ -2464,57 +3264,58 @@ export function PlayerBar({
                   </div>
 
                   {/* Song Thumbnail, Title, Artist Information & Actions */}
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-[#141422]">
+                  <div className="flex items-center justify-between gap-1.5 sm:gap-2 py-0">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <div className="h-8 w-8 shrink-0 overflow-hidden rounded-lg border border-white/10 bg-[#141422]">
                         <ArtworkImage
                           src={currentTrack.coverUrl}
                           alt={currentTrack.title}
                         />
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <h2 className="font-display text-base sm:text-lg font-bold text-white truncate">
+                      <div className="min-w-0 flex-1 space-y-[1px]">
+                        <h2 className="font-display text-[13px] sm:text-sm font-bold text-white truncate leading-tight">
                           {currentTrack.title}
                         </h2>
-                        <p className="text-xs text-slate-300 truncate mt-0.5">
-                          {currentTrack.artist}
-                        </p>
-                        <p className="text-[11px] text-slate-400 truncate mt-0.5 font-mono-tabular">
-                          {currentTrack.language}
-                          <span className="mx-1.5 text-slate-600" aria-hidden="true">
+                        <p className="flex items-center gap-1 min-w-0 text-[10px] sm:text-[11px] leading-tight">
+                          <span className="text-slate-300 truncate min-w-0">
+                            {currentTrack.artist}
+                          </span>
+                          <span className="text-slate-600 shrink-0" aria-hidden="true">
                             ·
                           </span>
-                          {currentTrack.bpm} BPM
-                          <span className="mx-1.5 text-slate-600" aria-hidden="true">
+                          <span className="text-slate-400 font-mono-tabular shrink-0">
+                            {currentTrack.language} · {currentTrack.bpm} BPM
+                          </span>
+                          <span className="hidden sm:inline text-slate-600 shrink-0" aria-hidden="true">
                             ·
                           </span>
-                          <span className="text-blue-400 font-sans">
+                          <span className="hidden sm:inline text-blue-400 shrink-0">
                             {currentTrack.licenseType}
                           </span>
                         </p>
                         {audioError ? (
-                          <p className="text-[11px] text-amber-400 truncate mt-0.5">
+                          <p className="text-[10px] text-amber-400 truncate leading-tight">
                             {audioError}
                           </p>
                         ) : null}
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex items-center gap-1 shrink-0">
                       <button
                         type="button"
                         onClick={() => onToggleFavorite(currentTrack.id)}
                         aria-label={
                           isFavorite ? 'Remove from favorites' : 'Add to favorites'
                         }
-                        className={`flex h-10 w-10 items-center justify-center rounded-xl border transition-colors ${
+                        className={`flex h-8 w-8 items-center justify-center rounded-lg border transition-colors ${
                           isFavorite
                             ? 'bg-violet-500/20 border-violet-400/40 text-violet-300'
                             : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-white'
                         }`}
                       >
                         <Heart
-                          className={`w-4 h-4 ${isFavorite ? 'fill-current' : ''}`}
+                          className={`w-3.5 h-3.5 ${isFavorite ? 'fill-current' : ''}`}
                         />
                       </button>
 
@@ -2525,9 +3326,9 @@ export function PlayerBar({
                           rel="noopener noreferrer"
                           aria-label="Open on YouTube"
                           title="Open original source"
-                          className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/[0.04] border border-white/[0.08] text-slate-400 hover:text-white transition-colors"
+                          className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.04] border border-white/[0.08] text-slate-400 hover:text-white transition-colors"
                         >
-                          <ExternalLink className="w-4 h-4" />
+                          <ExternalLink className="w-3.5 h-3.5" />
                         </a>
                       ) : null}
                     </div>
@@ -2549,9 +3350,9 @@ export function PlayerBar({
                     onResetHook={handleResetHook}
                   />
 
-                  {/* Main Transport Deck: Hook Mode, Shuffle, Prev, Play/Pause, Next, Repeat */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                    {/* Left: Compact Dual-State Sliding Toggle (Full <-> Hook) */}
+                  {/* Main Transport Deck: Full / Hook Toggle directly above Play/Pause + Action Row */}
+                  <div className="flex flex-col items-center gap-1 py-0">
+                    {/* Compact Dual-State Sliding Toggle (Full <-> Hook) centered directly above Play/Pause */}
                     <button
                       type="button"
                       role="switch"
@@ -2562,7 +3363,7 @@ export function PlayerBar({
                           : 'Full Song active. Switch to Hook Mode'
                       }
                       onClick={handleToggleHookMode}
-                      className={`gg-hook-switch group relative mx-auto sm:mx-0 inline-flex h-8 items-center rounded-xl p-[3px] bg-[#06060C] border transition-all duration-200 shadow-[inset_0_2px_6px_rgba(0,0,0,0.85)] shrink-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-400 ${
+                      className={`gg-hook-switch group relative inline-flex h-7 items-center rounded-xl p-[2px] bg-[#06060C] border transition-all duration-200 shadow-[inset_0_2px_6px_rgba(0,0,0,0.85)] shrink-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-400 ${
                         hookMode
                           ? 'is-hook border-violet-400/50 shadow-[inset_0_2px_6px_rgba(0,0,0,0.85),0_0_16px_-4px_rgba(139,92,246,0.55)]'
                           : 'border-white/[0.11] hover:border-violet-400/35'
@@ -2578,7 +3379,7 @@ export function PlayerBar({
                           }`}
                         />
                         <span
-                          className={`relative z-10 inline-flex items-center justify-center gap-1 px-2.5 py-1 text-[11px] font-semibold tracking-tight whitespace-nowrap transition-colors duration-200 ${
+                          className={`relative z-10 inline-flex items-center justify-center gap-1 px-2.5 py-0.5 text-[11px] font-semibold tracking-tight whitespace-nowrap transition-colors duration-200 ${
                             !hookMode ? 'text-white' : 'text-slate-400 group-hover:text-slate-200'
                           }`}
                         >
@@ -2591,7 +3392,7 @@ export function PlayerBar({
                           <span>Full</span>
                         </span>
                         <span
-                          className={`relative z-10 inline-flex items-center justify-center gap-1 px-2.5 py-1 text-[11px] font-semibold tracking-tight whitespace-nowrap transition-colors duration-200 ${
+                          className={`relative z-10 inline-flex items-center justify-center gap-1 px-2.5 py-0.5 text-[11px] font-semibold tracking-tight whitespace-nowrap transition-colors duration-200 ${
                             hookMode ? 'text-white' : 'text-slate-400 group-hover:text-slate-200'
                           }`}
                         >
@@ -2605,119 +3406,121 @@ export function PlayerBar({
                       </span>
                     </button>
 
-                    {/* Center: Transport Controls */}
-                    <div className="flex items-center gap-1.5 sm:gap-2.5 mx-auto">
-                      <button
-                        type="button"
-                        onClick={onToggleShuffle}
-                        aria-label="Toggle shuffle"
-                        aria-pressed={shuffle}
-                        className={`flex h-11 w-11 items-center justify-center rounded-xl transition-colors ${
-                          shuffle
-                            ? 'bg-violet-500/20 text-violet-300'
-                            : 'text-slate-400 hover:text-white hover:bg-white/[0.05]'
-                        }`}
-                      >
-                        <Shuffle className="w-4 h-4" />
-                      </button>
+                    {/* Playback Action Row */}
+                    <div className="relative w-full flex items-center justify-center py-0">
+                      <div className="flex items-center justify-center gap-1 sm:gap-1.5">
+                        <button
+                          type="button"
+                          onClick={onToggleShuffle}
+                          aria-label="Toggle shuffle"
+                          aria-pressed={shuffle}
+                          className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${
+                            shuffle
+                              ? 'bg-violet-500/20 text-violet-300'
+                              : 'text-slate-400 hover:text-white hover:bg-white/[0.05]'
+                          }`}
+                        >
+                          <Shuffle className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                        </button>
 
-                      <button
-                        type="button"
-                        onClick={onPrev}
-                        aria-label="Previous track"
-                        className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/[0.05] text-slate-200 hover:text-white hover:bg-white/[0.1] transition-colors"
-                      >
-                        <SkipBack className="w-4 h-4 fill-current" />
-                      </button>
+                        <button
+                          type="button"
+                          onClick={onPrev}
+                          aria-label="Previous track"
+                          className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/[0.05] text-slate-200 hover:text-white hover:bg-white/[0.1] transition-colors"
+                        >
+                          <SkipBack className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-current" />
+                        </button>
 
-                      <button
-                        type="button"
-                        onClick={handleTogglePlayPause}
-                        aria-label={isPlaying ? 'Pause' : 'Play'}
-                        className="inline-flex h-12 min-w-[116px] sm:min-w-[136px] items-center justify-center gap-2 px-5 rounded-2xl bg-gradient-to-r from-violet-600 to-blue-500 text-sm font-bold text-white shadow-lg shadow-violet-950/60 hover:opacity-95 active:scale-[0.98] transition-all whitespace-nowrap shrink-0"
-                      >
-                        {isPlaying ? (
-                          <>
-                            <Pause className="w-4 h-4 fill-current" />
-                            <span>Pause</span>
-                          </>
-                        ) : (
-                          <>
-                            <Play className="w-4 h-4 fill-current" />
-                            <span>Play</span>
-                          </>
-                        )}
-                      </button>
+                        <button
+                          type="button"
+                          onClick={handleTogglePlayPause}
+                          aria-label={isPlaying ? 'Pause' : 'Play'}
+                          className="inline-flex h-9 min-w-[94px] sm:min-w-[108px] items-center justify-center gap-1.5 px-3.5 rounded-xl bg-gradient-to-r from-violet-600 to-blue-500 text-xs sm:text-sm font-bold text-white shadow-lg shadow-violet-950/60 hover:opacity-95 active:scale-[0.98] transition-all whitespace-nowrap shrink-0"
+                        >
+                          {isPlaying ? (
+                            <>
+                              <Pause className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-current" />
+                              <span>Pause</span>
+                            </>
+                          ) : (
+                            <>
+                              <Play className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-current" />
+                              <span>Play</span>
+                            </>
+                          )}
+                        </button>
 
-                      <button
-                        type="button"
-                        onClick={onNext}
-                        aria-label="Next track"
-                        className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/[0.05] text-slate-200 hover:text-white hover:bg-white/[0.1] transition-colors"
-                      >
-                        <SkipForward className="w-4 h-4 fill-current" />
-                      </button>
+                        <button
+                          type="button"
+                          onClick={onNext}
+                          aria-label="Next track"
+                          className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/[0.05] text-slate-200 hover:text-white hover:bg-white/[0.1] transition-colors"
+                        >
+                          <SkipForward className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-current" />
+                        </button>
 
-                      <button
-                        type="button"
-                        onClick={onCycleRepeat}
-                        aria-label={`Repeat mode: ${repeatMode}`}
-                        className={`flex h-11 w-11 items-center justify-center rounded-xl transition-colors ${
-                          repeatMode !== 'off'
-                            ? 'bg-blue-500/20 text-blue-300'
-                            : 'text-slate-400 hover:text-white hover:bg-white/[0.05]'
-                        }`}
-                      >
-                        {repeatMode === 'one' ? (
-                          <Repeat1 className="w-4 h-4" />
-                        ) : (
-                          <Repeat className="w-4 h-4" />
-                        )}
-                      </button>
-                    </div>
+                        <button
+                          type="button"
+                          onClick={onCycleRepeat}
+                          aria-label={`Repeat mode: ${repeatMode}`}
+                          className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${
+                            repeatMode !== 'off'
+                              ? 'bg-blue-500/20 text-blue-300'
+                              : 'text-slate-400 hover:text-white hover:bg-white/[0.05]'
+                          }`}
+                        >
+                          {repeatMode === 'one' ? (
+                            <Repeat1 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                          ) : (
+                            <Repeat className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                          )}
+                        </button>
+                      </div>
 
-                    {/* Right: Volume Control (Desktop only) */}
-                    <div className="hidden lg:flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setMuted((prev) => !prev)}
-                        aria-label={muted ? 'Unmute audio' : 'Mute audio'}
-                        className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/[0.04] border border-white/[0.08] text-slate-300 hover:text-white transition-colors"
-                      >
-                        {muted || volume === 0 ? (
-                          <VolumeX className="w-4 h-4" />
-                        ) : (
-                          <Volume2 className="w-4 h-4" />
-                        )}
-                      </button>
-                      <input
-                        type="range"
-                        aria-label="Volume"
-                        min={0}
-                        max={1}
-                        step={0.02}
-                        value={muted ? 0 : volume}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          setVolume(val);
-                          if (val > 0 && muted) setMuted(false);
-                        }}
-                        className="gg-range w-20 sm:w-24"
-                        style={{
-                          background: `linear-gradient(to right, #8B5CF6 0%, #3B82F6 ${
-                            (muted ? 0 : volume) * 100
-                          }%, var(--gg-range-track-rest, rgba(255,255,255,0.14)) ${
-                            (muted ? 0 : volume) * 100
-                          }%, var(--gg-range-track-rest, rgba(255,255,255,0.14)) 100%)`,
-                          borderRadius: '9999px',
-                          height: '4px',
-                        }}
-                      />
+                      {/* Right: Volume Control (Desktop only, anchored right so Play/Pause stays centered under Full/Hook) */}
+                      <div className="hidden lg:flex items-center gap-1 absolute right-0 top-1/2 -translate-y-1/2">
+                        <button
+                          type="button"
+                          onClick={() => setMuted((prev) => !prev)}
+                          aria-label={muted ? 'Unmute audio' : 'Mute audio'}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.04] border border-white/[0.08] text-slate-300 hover:text-white transition-colors"
+                        >
+                          {muted || volume === 0 ? (
+                            <VolumeX className="w-3.5 h-3.5" />
+                          ) : (
+                            <Volume2 className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                        <input
+                          type="range"
+                          aria-label="Volume"
+                          min={0}
+                          max={1}
+                          step={0.02}
+                          value={muted ? 0 : volume}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            setVolume(val);
+                            if (val > 0 && muted) setMuted(false);
+                          }}
+                          className="gg-range w-14"
+                          style={{
+                            background: `linear-gradient(to right, #8B5CF6 0%, #3B82F6 ${
+                              (muted ? 0 : volume) * 100
+                            }%, var(--gg-range-track-rest, rgba(255,255,255,0.14)) ${
+                              (muted ? 0 : volume) * 100
+                            }%, var(--gg-range-track-rest, rgba(255,255,255,0.14)) 100%)`,
+                            borderRadius: '9999px',
+                            height: '4px',
+                          }}
+                        />
+                      </div>
                     </div>
                   </div>
 
                   {/* Bottom Studio Strip: Missing Song Request + Quick Queue / Recent Counts */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/[0.07] text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-white/[0.07] text-[11px]">
                     <div className="flex items-center gap-2 text-slate-400 font-mono-tabular">
                       <button
                         type="button"
@@ -2837,10 +3640,14 @@ export function PlayerBar({
                                 {item.artist}
                               </p>
                             </div>
-                            <span className="text-[11px] font-mono-tabular text-slate-500">
-                              {item.durationSec > 0
-                                ? formatDuration(item.durationSec)
-                                : 'YT'}
+                            <span className="text-[11px] font-mono-tabular text-slate-500 shrink-0">
+                              {hookMode
+                                ? `IN ${Math.round(
+                                    getHookForTrack(item, item.durationSec || 218).startSec
+                                  )}s`
+                                : item.durationSec > 0
+                                  ? formatDuration(item.durationSec)
+                                  : 'YT'}
                             </span>
                           </button>
                         );
@@ -2888,7 +3695,7 @@ export function PlayerBar({
             {consoleDrawerTab !== null && isDesktopViewport ? (
               <aside
                 aria-label="Queue and Recently Played"
-                className="w-80 xl:w-88 shrink-0 rounded-3xl bg-[#10101A]/95 border border-violet-500/20 shadow-2xl flex flex-col max-h-[640px] overflow-hidden"
+                className="w-72 xl:w-80 shrink-0 rounded-2xl sm:rounded-3xl bg-[#10101A]/95 border border-violet-500/20 shadow-2xl flex flex-col max-h-[540px] overflow-hidden"
               >
                 <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-white/[0.08]">
                   <div className="flex items-center gap-1 p-1 rounded-xl bg-[#09090F] border border-white/[0.06]">
@@ -2967,10 +3774,14 @@ export function PlayerBar({
                               {item.artist}
                             </p>
                           </div>
-                          <span className="text-[11px] font-mono-tabular text-slate-500">
-                            {item.durationSec > 0
-                              ? formatDuration(item.durationSec)
-                              : 'YT'}
+                          <span className="text-[11px] font-mono-tabular text-slate-500 shrink-0">
+                            {hookMode
+                              ? `IN ${Math.round(
+                                  getHookForTrack(item, item.durationSec || 218).startSec
+                                )}s`
+                              : item.durationSec > 0
+                                ? formatDuration(item.durationSec)
+                                : 'YT'}
                           </span>
                         </button>
                       );
@@ -3340,7 +4151,7 @@ export function PlayerBar({
               <span>Studio</span>
             </button>
 
-            {hasAnyYtDeck ? (
+            {ytStageVisible ? (
               <button
                 type="button"
                 onClick={() => setYtDockMinimized((prev) => !prev)}
@@ -3473,7 +4284,7 @@ export function PlayerBar({
               </button>
 
               <div className="flex items-center gap-1 shrink-0">
-                {hasAnyYtDeck ? (
+                {ytStageVisible ? (
                   <button
                     type="button"
                     onClick={() => setYtDockMinimized((prev) => !prev)}

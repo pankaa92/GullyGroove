@@ -210,13 +210,19 @@ async function startServer() {
       return;
     }
 
+    const parsedDuration = Number(body.durationSec);
+    if (Number.isFinite(parsedDuration) && parsedDuration > 0 && parsedDuration <= 30) {
+      res.status(400).json({ error: 'Only songs longer than 30 seconds can be added to the catalog.' });
+      return;
+    }
+
     const created = catalogService.addAuthorisedTrack({
       title: body.title,
       artist: body.artist,
       album: body.album || 'Authorised Release',
       genre: body.genre || 'Indipop',
       language: body.language || 'Hindi',
-      durationSec: Number(body.durationSec) || 218,
+      durationSec: Number.isFinite(parsedDuration) && parsedDuration > 30 ? parsedDuration : 218,
       licenseType: body.licenseType || 'Royalty-Free Studio',
       streamUrl: body.streamUrl,
       coverUrl: body.coverUrl,

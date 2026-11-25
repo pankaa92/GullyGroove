@@ -57,7 +57,7 @@ export function MediaVaultView({
             Modular Music Provider Architecture
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Each adapter enforces explicit licensing boundaries—separating full licensed streams, 30-second permitted previews, and official embeds.
+            Each adapter enforces explicit licensing boundaries—separating full-length licensed streams (&gt;30s) and official embeds.
           </p>
         </div>
 

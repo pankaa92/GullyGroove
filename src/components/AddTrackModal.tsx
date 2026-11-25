@@ -47,7 +47,13 @@ export function AddTrackModal({
     probe.src = objectUrl;
     probe.onloadedmetadata = () => {
       if (Number.isFinite(probe.duration) && probe.duration > 1) {
-        setDurationSec(Math.round(probe.duration));
+        const rounded = Math.round(probe.duration);
+        setDurationSec(rounded);
+        if (rounded <= 30) {
+          setError('Tracks of 30 seconds or less are not allowed in the catalog.');
+        } else {
+          setError(null);
+        }
       }
     };
   };
@@ -64,6 +70,10 @@ export function AddTrackModal({
       setError('Please confirm that you hold streaming rights or a valid open license.');
       return;
     }
+    if (durationSec > 0 && durationSec <= 30) {
+      setError('Only songs longer than 30 seconds can be added to the catalog.');
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -73,7 +83,7 @@ export function AddTrackModal({
         album: album.trim() || 'Independent Release',
         genre,
         language,
-        durationSec: Math.max(10, Number(durationSec) || 218),
+        durationSec: Math.max(31, Number(durationSec) || 218),
         licenseType,
         streamUrl: streamUrl.trim(),
         playlistId,
