@@ -22,6 +22,7 @@ import { PlaylistCard } from './components/PlaylistCard';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { RequestSongModal } from './components/RequestSongModal';
 import { SearchExploreView } from './components/SearchExploreView';
+import { PlaylistRecommendationsPanel } from './components/PlaylistRecommendationsPanel';
 import {
   SettingsModal,
   type AppTheme,
@@ -48,6 +49,10 @@ import {
   matchesLanguageFilter,
   type LanguageFilter,
 } from './utils/languageFilter';
+import {
+  analyzePlaylistProfile,
+  formatPlaylistVibeLine,
+} from './utils/playlistRecommendations';
 
 type ActiveTab = 'discover' | 'playlists' | 'search' | 'vault' | 'playlist-detail';
 type RegionFilter = 'All' | 'India' | 'Pan-India' | 'Global';
@@ -127,6 +132,8 @@ export default function App() {
   const [regionFilter, setRegionFilter] = useState<RegionFilter>('All');
   const [languageFilter, setLanguageFilter] = useState<LanguageFilter>('All');
   const [playlistDirectAudioOnly, setPlaylistDirectAudioOnly] = useState(false);
+  const [playlistQuery, setPlaylistQuery] = useState('');
+  const [playlistSort, setPlaylistSort] = useState<'curated' | 'popular' | 'bpm' | 'title'>('curated');
   const [visibleTrackLimit, setVisibleTrackLimit] = useState(80);
 
   const [playlists, setPlaylists] = useState<PlaylistWithStats[]>([]);
@@ -440,19 +447,25 @@ export default function App() {
 
   const navigateToTab = useCallback((tab: ActiveTab) => {
     setActiveTab(tab);
-    if (window.scrollY > 12) {
-      window.scrollTo({ top: 0, behavior: 'auto' });
-    }
+    requestAnimationFrame(() => {
+      if (window.scrollY > 12) {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    });
   }, []);
 
   const openPlaylist = useCallback((playlistId: string) => {
     setSelectedPlaylistId(playlistId);
     setPlaylistDirectAudioOnly(false);
+    setPlaylistQuery('');
+    setPlaylistSort('curated');
     setVisibleTrackLimit(80);
     setActiveTab('playlist-detail');
-    if (window.scrollY > 12) {
-      window.scrollTo({ top: 0, behavior: 'auto' });
-    }
+    requestAnimationFrame(() => {
+      if (window.scrollY > 12) {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    });
   }, []);
 
   const getPlaylistTracks = useCallback(
@@ -521,12 +534,12 @@ export default function App() {
 
   const playlistsWithLiveCounts = useMemo(() => {
     return playlists.map((pl) => {
-      if (pl.id !== 'my-playlist') return pl;
-      const myTracks = getPlaylistTracks('my-playlist');
-      const totalDurationSec = myTracks.reduce((acc, t) => acc + t.durationSec, 0);
+      const plTracks = getPlaylistTracks(pl.id);
+      if (plTracks.length === 0 && pl.id !== 'my-playlist') return pl;
+      const totalDurationSec = plTracks.reduce((acc, t) => acc + t.durationSec, 0);
       return {
         ...pl,
-        trackCount: myTracks.length,
+        trackCount: plTracks.length,
         totalDurationSec,
       };
     });
@@ -572,21 +585,48 @@ export default function App() {
         ? languageMatchedTracks
         : allTracks;
     const directCount = baseTracks.filter((t) => Boolean(t.streamUrl)).length;
-    const displayedTracks = playlistDirectAudioOnly
+    const queryNorm = playlistQuery.trim().toLowerCase();
+    let displayedTracks = playlistDirectAudioOnly
       ? baseTracks.filter((t) => Boolean(t.streamUrl))
       : baseTracks;
+
+    if (queryNorm) {
+      displayedTracks = displayedTracks.filter(
+        (t) =>
+          t.title.toLowerCase().includes(queryNorm) ||
+          t.artist.toLowerCase().includes(queryNorm) ||
+          t.genre.toLowerCase().includes(queryNorm) ||
+          t.language.toLowerCase().includes(queryNorm)
+      );
+    }
+
+    if (playlistSort !== 'curated') {
+      displayedTracks = [...displayedTracks].sort((a, b) => {
+        if (playlistSort === 'popular') return (b.plays || 0) - (a.plays || 0);
+        if (playlistSort === 'bpm') return (b.bpm || 0) - (a.bpm || 0);
+        return a.title.localeCompare(b.title);
+      });
+    }
+
+    const vibeLine = pl
+      ? formatPlaylistVibeLine(analyzePlaylistProfile(pl, allTracks))
+      : '';
+
     return {
       playlist: pl,
       allTracks,
       languageMatchedCount: languageMatchedTracks.length,
       displayedTracks,
       directCount,
+      vibeLine,
     };
   }, [
     selectedPlaylistId,
     playlistsWithLiveCounts,
     getPlaylistTracks,
     playlistDirectAudioOnly,
+    playlistQuery,
+    playlistSort,
     languageFilter,
   ]);
 
@@ -621,7 +661,10 @@ export default function App() {
           >
             <BrandLogo size="md" />
             <span className="font-display text-lg font-bold tracking-tight text-white whitespace-nowrap shrink-0">
-              GullyGroove
+              Gully
+              <span className="bg-gradient-to-r from-violet-400 to-cyan-400 bg-clip-text text-transparent">
+                Groove
+              </span>
             </span>
           </button>
 
@@ -678,7 +721,7 @@ export default function App() {
             </span>
           </div>
 
-          <div className="flex-1 overflow-y-auto space-y-1 pt-2 pr-1">
+          <div className="flex-1 overflow-y-auto scroll-smooth space-y-1 pt-2 pr-1">
             {playlistsWithLiveCounts.map((pl) => {
               const selected =
                 activeTab === 'playlist-detail' && selectedPlaylistId === pl.id;
@@ -793,8 +836,11 @@ export default function App() {
             className="flex items-center gap-1.5 sm:gap-2 whitespace-nowrap shrink-0 min-w-0"
           >
             <BrandLogo size="sm" />
-            <span className="font-display text-[15px] sm:text-base font-bold text-white truncate">
-              GullyGroove
+            <span className="font-display text-[15px] sm:text-base font-bold tracking-tight text-white truncate">
+              Gully
+              <span className="bg-gradient-to-r from-violet-400 to-cyan-400 bg-clip-text text-transparent">
+                Groove
+              </span>
             </span>
           </button>
 
@@ -877,7 +923,7 @@ export default function App() {
                         Built for Every Indian Road, Mehfil &amp; Night.
                       </h1>
                       <p className="text-xs sm:text-base text-slate-300 leading-relaxed max-w-xl">
-                        Stream instant ad-free audio and curated regional collections with smooth crossfade transitions.
+                        Stream seamless audio and curated regional collections with smooth crossfade transitions and immersive Hook Mode.
                       </p>
 
                       <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2.5 sm:gap-3 pt-1 sm:pt-2">
@@ -1180,6 +1226,12 @@ export default function App() {
                         </span>
                       </div>
 
+                      {activePlaylist.vibeLine ? (
+                        <p className="text-[11px] text-slate-300/90 font-mono-tabular">
+                          Musical DNA · {activePlaylist.vibeLine}
+                        </p>
+                      ) : null}
+
                       <div className="flex flex-wrap items-center justify-center md:justify-start gap-2.5 pt-2">
                         <button
                           type="button"
@@ -1247,14 +1299,62 @@ export default function App() {
                     </div>
                   </div>
 
+                  {/* In-Playlist Filter & Sort Bar */}
+                  {activePlaylist.allTracks.length > 0 ? (
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+                      <div className="relative flex-1 sm:max-w-xs">
+                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <input
+                          type="search"
+                          value={playlistQuery}
+                          onChange={(e) => setPlaylistQuery(e.target.value)}
+                          placeholder="Filter songs or artists in playlist..."
+                          aria-label="Filter songs or artists in playlist"
+                          className="w-full h-10 pl-8 pr-3 rounded-xl bg-[#12121B] border border-white/10 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-violet-400"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between sm:justify-end gap-2">
+                        <span className="text-[11px] font-mono-tabular text-slate-400">
+                          {activePlaylist.displayedTracks.length} shown
+                        </span>
+                        <select
+                          aria-label="Sort playlist tracks"
+                          value={playlistSort}
+                          onChange={(e) =>
+                            setPlaylistSort(
+                              e.target.value as 'curated' | 'popular' | 'bpm' | 'title'
+                            )
+                          }
+                          className="h-10 px-3 rounded-xl bg-[#12121B] border border-white/10 text-xs font-medium text-slate-200 focus:outline-none focus:border-violet-400"
+                        >
+                          <option value="curated">Curated Order</option>
+                          <option value="popular">Most Popular</option>
+                          <option value="bpm">Tempo (BPM)</option>
+                          <option value="title">Title (A–Z)</option>
+                        </select>
+                      </div>
+                    </div>
+                  ) : null}
+
                   {activePlaylist.displayedTracks.length === 0 ? (
                     <div className="py-12 px-4 text-center rounded-xl bg-[#12121B] border border-white/[0.07]">
                       <p className="text-sm text-slate-300">
-                        {playlistDirectAudioOnly && activePlaylist.allTracks.length > 0
-                          ? 'This playlist uses embedded YouTube tracks and has no direct HTML5 audio streams yet.'
-                          : 'No tracks in this playlist yet.'}
+                        {playlistQuery.trim()
+                          ? `No tracks in this playlist match “${playlistQuery.trim()}”.`
+                          : playlistDirectAudioOnly && activePlaylist.allTracks.length > 0
+                            ? 'This playlist uses embedded YouTube tracks and has no direct HTML5 audio streams yet.'
+                            : 'No tracks in this playlist yet.'}
                       </p>
-                      {playlistDirectAudioOnly && activePlaylist.allTracks.length > 0 ? (
+                      {playlistQuery.trim() ? (
+                        <button
+                          type="button"
+                          onClick={() => setPlaylistQuery('')}
+                          className="mt-3 px-4 py-2 text-xs font-semibold text-white rounded-lg bg-gradient-to-r from-violet-600 to-blue-500"
+                        >
+                          Clear Filter
+                        </button>
+                      ) : playlistDirectAudioOnly && activePlaylist.allTracks.length > 0 ? (
                         <button
                           type="button"
                           onClick={() => setPlaylistDirectAudioOnly(false)}
@@ -1317,6 +1417,20 @@ export default function App() {
                       ) : null}
                     </>
                   )}
+
+                  {/* Smart Song Recommendations tailored to existing playlist DNA */}
+                  <PlaylistRecommendationsPanel
+                    key={activePlaylist.playlist.id}
+                    playlist={activePlaylist.playlist}
+                    playlistTracks={activePlaylist.allTracks}
+                    allTracks={tracks}
+                    favorites={favorites}
+                    recentlyPlayed={recentlyPlayed}
+                    currentTrackId={currentTrack?.id || null}
+                    isPlaying={isPlaying}
+                    onPlayTrack={playTrackFromList}
+                    onAddTrack={handleAddToPlaylist}
+                  />
                 </section>
               ) : null}
 

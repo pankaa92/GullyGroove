@@ -1,10 +1,13 @@
+import { useId } from 'react';
+
 interface BrandLogoProps {
   size?: 'sm' | 'md';
 }
 
 export function BrandLogo({ size = 'md' }: BrandLogoProps) {
   const dims = size === 'sm' ? 'h-8 w-10' : 'h-9 w-11';
-  const uid = size === 'sm' ? 'gg-wave-sm' : 'gg-wave-md';
+  const reactId = useId().replace(/[^a-zA-Z0-9_-]/g, '');
+  const uid = `gg-logo-${size}-${reactId}`;
 
   return (
     <svg

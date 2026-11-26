@@ -13,6 +13,7 @@
     font-family: var(--font-sans);
     background-color: #09090D;
     color: #F4F4F5;
+    scroll-behavior: smooth;
     -webkit-tap-highlight-color: transparent;
   }
 
@@ -21,6 +22,7 @@
     background-color: #09090D;
     color: #F4F4F5;
     overflow-x: clip;
+    -webkit-overflow-scrolling: touch;
     -webkit-tap-highlight-color: transparent;
   }
 
@@ -50,16 +52,23 @@
 @keyframes ggViewEnter {
   from {
     opacity: 0;
-    transform: translate3d(0, 6px, 0);
+    transform: translate3d(0, 8px, 0) scale(0.996);
   }
   to {
     opacity: 1;
-    transform: translate3d(0, 0, 0);
+    transform: translate3d(0, 0, 0) scale(1);
   }
 }
 
 .gg-view-enter {
-  animation: ggViewEnter 190ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform, opacity;
+  animation: ggViewEnter 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Smooth GPU containment for cards and scroll containers */
+article.rounded-2xl,
+article.rounded-xl {
+  contain: layout style;
 }
 
 /* Live audio equalizer bars for the currently playing track row */
@@ -193,6 +202,22 @@ input[type='range'].gg-range:hover::-webkit-slider-thumb {
 
 .gg-wave-beat-hook {
   transform-origin: center;
+  will-change: transform;
+  animation-name: ggWaveHookBeat;
+  animation-timing-function: cubic-bezier(0.34, 1.25, 0.64, 1);
+  animation-iteration-count: infinite;
+}
+
+.gg-wave-classic-bar {
+  transform-origin: bottom;
+  will-change: transform;
+  animation-name: ggWaveBeat;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  animation-iteration-count: infinite;
+}
+
+.gg-wave-classic-hook {
+  transform-origin: bottom;
   will-change: transform;
   animation-name: ggWaveHookBeat;
   animation-timing-function: cubic-bezier(0.34, 1.25, 0.64, 1);
@@ -359,6 +384,7 @@ html.light [class*="bg-[#090910]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
 html.light [class*="bg-[#0A0A12]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
 html.light [class*="bg-[#0B0B13]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
 html.light [class*="bg-[#0D0D14]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="bg-[#0D0F22]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
 html.light [class*="bg-[#131324]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
 html.light [class*="bg-[#141422]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
 html.light [class*="bg-[#141426]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
@@ -410,6 +436,7 @@ html.light [class*="hover:bg-white/"]:not(.gg-keep-dark):not(.gg-keep-dark *):ho
 html.light [class*="from-violet-950"]:not(.gg-keep-dark):not(.gg-keep-dark *),
 html.light [class*="from-[#131320]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
 html.light [class*="from-[#131122]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
+html.light [class*="from-[#131129]"]:not(.gg-keep-dark):not(.gg-keep-dark *),
 html.light [class*="from-[#1C1C2B]"]:not(.gg-keep-dark):not(.gg-keep-dark *) {
   background-image: linear-gradient(
     135deg,
@@ -644,6 +671,11 @@ html.light .text-emerald-300:not(.gg-keep-dark):not(.gg-keep-dark *) {
 /* Active track gradient title legible on light cards */
 html.light .from-violet-300.to-blue-300.bg-clip-text {
   background-image: linear-gradient(to right, #6d28d9, #2563eb);
+}
+
+/* Main GullyGroove wordmark accent gradient legible in Bright Daylight */
+html.light .from-violet-400.to-cyan-400.bg-clip-text {
+  background-image: linear-gradient(to right, #7c3aed, #0284c7);
 }
 
 /* Keep solid gradient buttons & active switches crisp white */

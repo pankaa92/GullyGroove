@@ -25,11 +25,11 @@ export function getBpmCrossfadeMs(bpm?: number): number {
 }
 
 /**
- * Network/device-adaptive pre-roll lead window matching bajao.party:
- * 3s on normal connections, 6s on slow/lite connections.
+ * Detects slow/constrained network or device conditions matching bajao.party:
+ * Used for adaptive 6s pre-roll lead and lower YouTube playback quality ('tiny').
  */
-export function getPrerollLeadSec(): number {
-  if (typeof navigator === 'undefined') return 3;
+export function isLiteConnection(): boolean {
+  if (typeof navigator === 'undefined') return false;
   const nav = navigator as Navigator & {
     deviceMemory?: number;
     hardwareConcurrency?: number;
@@ -41,14 +41,25 @@ export function getPrerollLeadSec(): number {
     };
   };
   const conn = nav.connection;
-  const isLite =
+  return Boolean(
     conn?.saveData === true ||
-    (conn?.effectiveType && ['slow-2g', '2g', '3g'].includes(conn.effectiveType)) ||
-    (nav.deviceMemory !== undefined && nav.deviceMemory <= 2) ||
-    (nav.hardwareConcurrency !== undefined && nav.hardwareConcurrency <= 2) ||
-    (conn?.downlink !== undefined && conn.downlink > 0 && conn.downlink < 1.5) ||
-    (conn?.rtt !== undefined && conn.rtt >= 600);
-  return isLite ? 6 : 3;
+      (conn?.effectiveType &&
+        ['slow-2g', '2g', '3g'].includes(conn.effectiveType)) ||
+      (nav.deviceMemory !== undefined && nav.deviceMemory <= 2) ||
+      (nav.hardwareConcurrency !== undefined && nav.hardwareConcurrency <= 2) ||
+      (conn?.downlink !== undefined &&
+        conn.downlink > 0 &&
+        conn.downlink < 1.5) ||
+      (conn?.rtt !== undefined && conn.rtt >= 600)
+  );
+}
+
+/**
+ * Network/device-adaptive pre-roll lead window matching bajao.party:
+ * 3s on normal connections, 6s on slow/lite connections.
+ */
+export function getPrerollLeadSec(): number {
+  return isLiteConnection() ? 6 : 3;
 }
 
 function roundTenth(val: number): number {

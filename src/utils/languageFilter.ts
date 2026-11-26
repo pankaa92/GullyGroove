@@ -7,6 +7,7 @@ export const LANGUAGE_FILTERS = [
   'Marathi',
   'Haryanvi',
   'Bhojpuri',
+  'Bengali',
   'South',
   'Nepali & NE',
   'Devotional',
@@ -47,6 +48,8 @@ export function matchesLanguageFilter(track: Track, filter: LanguageFilter): boo
       return lang.includes('haryanvi');
     case 'Bhojpuri':
       return lang.includes('bhojpuri');
+    case 'Bengali':
+      return lang.includes('bengali') || lang.includes('bangla');
     case 'South':
       return SOUTH_TOKENS.some((tok) => lang.includes(tok));
     case 'Nepali & NE':

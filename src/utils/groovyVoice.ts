@@ -19,14 +19,14 @@ export type GroovyIntent =
   | { type: 'favorite'; like: boolean }
   | { type: 'navigate'; target: 'discover' | 'playlists' | 'search' | 'studio' | 'minimize' }
   | { type: 'play-playlist'; playlist: PlaylistWithStats }
-  | { type: 'play-track'; track: Track; queue: Track[] }
+  | { type: 'play-track'; track: Track; queue: Track[]; matchedLabel?: string }
   | { type: 'search-and-play'; query: string }
   | { type: 'unknown'; raw: string };
 
 const WAKE_WORD_PREFIX = '(?:hey|ok|okay|hi|hello|yo|oye|a|aye)';
 
 const WAKE_WORD_CORE =
-  '(?:groovy|groovie|groovey|groovi|grovy|gruvy|gruvi|groov|grooby|groobey|gravy|roovy|ruvy|roovi|ruby|rooby|rubi|roobi|gru|groo|grew\\s+we|grew\\s+be|grew\\s+v|grow\\s+we|guru\\s+ve|guru\\s+we|guru\\s+v)';
+  '(?:groovy|groovie|groovey|groovi|grovy|gruvy|gruvi|groov|grooby|groobey|groobi|groowi|gravy|roovy|ruvy|roovi|ruby|rooby|rubi|roobi|gru|groo|grew\\s+we|grew\\s+be|grew\\s+v|grow\\s+we|guru\\s+ve|guru\\s+we|guru\\s+v)';
 
 const WAKE_WORD_REGEX = new RegExp(
   `(?:\\b${WAKE_WORD_PREFIX}\\s+)?\\b${WAKE_WORD_CORE}\\b[,:;.!?]*|\\b${WAKE_WORD_PREFIX}\\s+(?:groove|grew|movie|kuroobi|guru|doobie|truly|ravi|bro)\\b[,:;.!?]*`,
@@ -160,11 +160,14 @@ export function extractGroovyWakeCommand(transcript: string): {
   };
 }
 
-function normalizeText(value: string): string {
-  return value
+function normalizeIndianAccentText(value: string): string {
+  let text = value
     .toLowerCase()
     .replace(/\b(\d{1,2})\s*:\s*00\s*(?:a\.?\s*m\.?)?/g, '$1 am')
-    .replace(/\b(\d{1,2}|two|to|too|three)\s+a\.?\s*m\.?\b/g, '$1 am')
+    .replace(/\b(\d{1,2}|two|to|too|three|do)\s+(?:a\.?\s*m\.?|baje)\b/g, (_, hr) => {
+      const mapped = hr === 'do' || hr === 'two' || hr === 'to' || hr === 'too' ? '2' : hr === 'three' ? '3' : hr;
+      return `${mapped} am`;
+    })
     .replace(/\ba\.m\.?/g, 'am')
     .replace(/\bp\.m\.?/g, 'pm')
     .replace(/\b90'?s\b/g, '90s')
@@ -172,6 +175,54 @@ function normalizeText(value: string): string {
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+
+  // Phonetic Indian-English ASR corrections for popular artists, genres & playlists
+  text = text
+    .replace(
+      /\b(?:arjit|arijeet|arjeet|are\s+jeet|arey\s+jeet|hare\s+jeet|arijeeth|arjith|arijit\s+sing|arijit\s+seen|arjit\s+sing|arijith)\b/g,
+      'arijit singh'
+    )
+    .replace(/\b(?:shreya\s+goshal|shreya\s+ghosal|shreya\s+koshal|sreya\s+ghoshal)\b/g, 'shreya ghoshal')
+    .replace(/\b(?:sonu\s+nigum|sonoo\s+nigam)\b/g, 'sonu nigam')
+    .replace(/\b(?:udit\s+narain|udit\s+naryan)\b/g, 'udit narayan')
+    .replace(/\b(?:kumar\s+shanu|kumaar\s+sanu)\b/g, 'kumar sanu')
+    .replace(/\b(?:kishor\s+kumar|kishore\s+da|kishor\s+da)\b/g, 'kishore kumar')
+    .replace(/\b(?:diljeet|dil\s+jeet|diljit\s+dosanj|diljeet\s+dosanjh)\b/g, 'diljit dosanjh')
+    .replace(/\b(?:siddhu\s+moose\s*wala|sidhu\s+muse\s*wala|sidhu\s+moose\s*wala)\b/g, 'sidhu moose wala')
+    .replace(/\b(?:ali\s+jafar|ali\s+jaffar)\b/g, 'ali zafar')
+    .replace(/\b(?:aatif\s+aslam)\b/g, 'atif aslam')
+    .replace(/\b(?:a\s*r\s*rehman|ar\s+rehman)\b/g, 'a r rahman')
+    .replace(/\b(?:bangla|bangali|bengoli|bengaly|bangoli)\b/g, 'bengali')
+    .replace(/\b(?:panjabi|panjaabi)\b/g, 'punjabi')
+    .replace(/\b(?:bhojpoori|bhojpur)\b/g, 'bhojpuri')
+    .replace(/\b(?:bhakthi|bakti)\b/g, 'bhakti')
+    .replace(/\b(?:shaadi|sadi|shadee)\b/g, 'shadi')
+    .replace(/\b(?:sangit|sangeeth)\b/g, 'sangeet')
+    .replace(/\b(?:daaru)\b/g, 'daru');
+
+  // Hinglish connector & trailing play verb normalization (e.g. "arijit ke gane chalao" -> "play arijit songs")
+  text = text
+    .replace(/\b(?:ke|ka|ki)\s+(?:gane|gaane|gana|gaana|songs?|tracks?|music)\b/g, ' songs')
+    .replace(/\b(?:gane|gaane|gana|gaana)\b/g, 'songs')
+    .replace(/\b(?:wali|wala)\s+playlist\b/g, 'playlist')
+    .replace(/\b(?:wali|wala)\s+songs?\b/g, 'songs');
+
+  const trailingPlayMatch = text.match(
+    /^(.+?)\s+(?:chalao|chala do|bajao|baja do|sunao|suna do|lagao|laga do|play karo|karo play)$/
+  );
+  if (
+    trailingPlayMatch &&
+    trailingPlayMatch[1] &&
+    !/^(?:play|pause|stop|resume|next|previous|volume|awaz)\b/.test(trailingPlayMatch[1])
+  ) {
+    text = `play ${trailingPlayMatch[1]}`;
+  }
+
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+function normalizeText(value: string): string {
+  return normalizeIndianAccentText(value);
 }
 
 const NUMBER_WORDS: Record<string, number> = {
@@ -211,10 +262,10 @@ function convertSpokenNumbers(norm: string): string {
 function stripPoliteFillers(norm: string): string {
   return norm
     .replace(
-      /^(?:please\s+|ok\s+|okay\s+|hey\s+|hi\s+|buddy\s+|bro\s+|yaar\s+|can you\s+|could you\s+|would you\s+|will you\s+|i want to\s+|i would like to\s+|i wanna\s+|just\s+|go ahead and\s+|tell me\s+)+/gi,
+      /^(?:please\s+|ok\s+|okay\s+|hey\s+|hi\s+|buddy\s+|bro\s+|bhai\s+|yaar\s+|ek kaam karo\s+|can you\s+|could you\s+|would you\s+|will you\s+|i want to\s+|i would like to\s+|i wanna\s+|just\s+|go ahead and\s+|tell me\s+)+/gi,
       ''
     )
-    .replace(/\s+(?:please|for me|right now|now|bro|buddy|yaar|on gullygroove)$/gi, '')
+    .replace(/\s+(?:please|for me|right now|now|bro|bhai|buddy|yaar|on gullygroove)$/gi, '')
     .trim();
 }
 
@@ -290,8 +341,6 @@ const PLAYLIST_ALIASES: Record<string, string[]> = {
     'late night',
     'sad',
     'chill',
-    'arijit',
-    'arijit singh',
   ],
   'shadi-sangeet-playlist': [
     'shadi and sangeet playlist',
@@ -353,7 +402,6 @@ const PLAYLIST_ALIASES: Record<string, string[]> = {
     'telugu',
     'malayalam',
     'kannada',
-    'anirudh',
     'kollywood',
     'tollywood',
   ],
@@ -374,15 +422,12 @@ const PLAYLIST_ALIASES: Record<string, string[]> = {
     'manipuri',
     'seven sisters',
     'himalayan',
-    'sajjan',
   ],
   'bhojpuri-hits': [
     'bhojpuri hits',
     'bhojpuri',
     'bhojpuri songs',
     'desi swag',
-    'pawan singh',
-    'khesari',
   ],
   '90s-hindi-classics': [
     '90s hindi classics',
@@ -398,8 +443,6 @@ const PLAYLIST_ALIASES: Record<string, string[]> = {
     'old hindi',
     'old songs',
     'classic',
-    'kumar sanu',
-    'udit narayan',
   ],
   'workout-motivation': [
     'workout motivation',
@@ -539,30 +582,87 @@ function findBestPlaylist(
 function findBestTrack(
   query: string,
   tracks: Track[]
-): { track: Track; score: number } | null {
+): { track: Track; titleScore: number; artistScore: number; score: number } | null {
   const qNorm = normalizeText(query);
   if (!qNorm || qNorm.length < 2) return null;
 
-  let best: { track: Track; score: number } | null = null;
+  let best: { track: Track; titleScore: number; artistScore: number; score: number } | null = null;
 
   for (const track of tracks) {
     const titleScore = scoreMatch(qNorm, normalizeText(track.title));
-    const artistScore = scoreMatch(qNorm, normalizeText(track.artist)) * 0.94;
+    const artistScore = scoreMatch(qNorm, normalizeText(track.artist));
     const albumScore = scoreMatch(qNorm, normalizeText(track.album)) * 0.72;
     const combinedScore =
       scoreMatch(qNorm, normalizeText(`${track.title} ${track.artist} ${track.genre}`)) * 0.85;
 
-    const maxScore = Math.max(titleScore, artistScore, albumScore, combinedScore);
+    const maxScore = Math.max(titleScore, artistScore * 0.96, albumScore, combinedScore);
     if (
       !best ||
       maxScore > best.score ||
       (maxScore === best.score && track.plays > best.track.plays)
     ) {
-      best = { track, score: maxScore };
+      best = { track, titleScore, artistScore, score: maxScore };
     }
   }
 
   return best && best.score >= 58 ? best : null;
+}
+
+function findArtistQueue(
+  query: string,
+  tracks: Track[]
+): { artistName: string; queue: Track[]; score: number } | null {
+  const qNorm = normalizeText(query);
+  if (!qNorm || qNorm.length < 3) return null;
+
+  const matches: Array<{ track: Track; score: number }> = [];
+  for (const track of tracks) {
+    const artistNorm = normalizeText(track.artist);
+    const s = scoreMatch(qNorm, artistNorm);
+    if (s >= 80) {
+      matches.push({ track, score: s });
+    }
+  }
+  if (matches.length === 0) return null;
+
+  matches.sort((a, b) => b.score - a.score || b.track.plays - a.track.plays);
+  const topScore = matches[0].score;
+  const strongMatches = matches.filter((m) => m.score >= Math.max(80, topScore - 10));
+  const queue = strongMatches.map((m) => m.track);
+  const firstArtist = queue[0].artist.split(/[·,&]/)[0].trim() || queue[0].artist;
+
+  return {
+    artistName: firstArtist,
+    queue,
+    score: topScore,
+  };
+}
+
+function findLanguageOrGenreQueue(
+  query: string,
+  tracks: Track[]
+): { label: string; queue: Track[]; score: number } | null {
+  const qNorm = normalizeText(query);
+  if (!qNorm || qNorm.length < 4) return null;
+
+  const matches = tracks.filter((t) => {
+    const langNorm = normalizeText(t.language);
+    const genreNorm = normalizeText(t.genre);
+    return (
+      langNorm === qNorm ||
+      hasWholePhrase(langNorm, qNorm) ||
+      hasWholePhrase(genreNorm, qNorm)
+    );
+  });
+
+  if (matches.length === 0) return null;
+  const sorted = [...matches].sort((a, b) => b.plays - a.plays);
+  const displayLabel = qNorm.charAt(0).toUpperCase() + qNorm.slice(1);
+  return {
+    label: `${displayLabel} songs`,
+    queue: sorted,
+    score: 88,
+  };
 }
 
 export function doesSearchResultMatchQuery(query: string, track: Track): boolean {
@@ -795,14 +895,49 @@ export function parseGroovyIntent(
   const wantsPlaylistExplicitly = /\bplaylist\b/i.test(text);
 
   const bestPlaylist = findBestPlaylist(playlistQuery, playlists);
+  const artistQueue = findArtistQueue(effectiveQuery, tracks);
+  const languageQueue = findLanguageOrGenreQueue(effectiveQuery, tracks);
   const bestTrack = findBestTrack(effectiveQuery, tracks);
 
   if (wantsPlaylistExplicitly && bestPlaylist) {
     return { type: 'play-playlist', playlist: bestPlaylist.playlist };
   }
 
+  // If user asked for a specific song title strongly, play that song immediately
+  if (bestTrack && bestTrack.titleScore >= 84 && (!bestPlaylist || bestTrack.titleScore > bestPlaylist.score)) {
+    const firstPlaylistId = bestTrack.track.playlistIds[0];
+    const siblingQueue = firstPlaylistId
+      ? tracks.filter((t) => t.playlistIds.includes(firstPlaylistId))
+      : tracks.slice(0, 60);
+    return {
+      type: 'play-track',
+      track: bestTrack.track,
+      queue: siblingQueue.length > 0 ? siblingQueue : [bestTrack.track],
+    };
+  }
+
+  // If user asked for a specific singer/artist (e.g. "play arijit songs"), queue all songs by that artist!
+  if (artistQueue && (!bestPlaylist || artistQueue.score >= bestPlaylist.score)) {
+    return {
+      type: 'play-track',
+      track: artistQueue.queue[0],
+      queue: artistQueue.queue,
+      matchedLabel: `${artistQueue.artistName} songs`,
+    };
+  }
+
   if (bestPlaylist && (!bestTrack || bestPlaylist.score >= bestTrack.score)) {
     return { type: 'play-playlist', playlist: bestPlaylist.playlist };
+  }
+
+  // Language/genre collection (e.g. "play bengali songs") when no playlist directly matched
+  if (languageQueue) {
+    return {
+      type: 'play-track',
+      track: languageQueue.queue[0],
+      queue: languageQueue.queue,
+      matchedLabel: languageQueue.label,
+    };
   }
 
   if (bestTrack) {
@@ -826,6 +961,33 @@ export function parseGroovyIntent(
   }
 
   return { type: 'unknown', raw: text };
+}
+
+export function parseGroovyIntentFromAlternatives(
+  alternatives: string[],
+  playlists: PlaylistWithStats[],
+  tracks: Track[]
+): { transcript: string; intent: GroovyIntent } {
+  const cleanAlts = alternatives.map((a) => a.trim()).filter(Boolean);
+  if (cleanAlts.length === 0) {
+    return { transcript: '', intent: { type: 'unknown', raw: '' } };
+  }
+
+  const primaryTranscript = cleanAlts[0];
+  let fallbackResult: { transcript: string; intent: GroovyIntent } | null = null;
+
+  for (const alt of cleanAlts) {
+    const intent = parseGroovyIntent(alt, playlists, tracks);
+    if (!fallbackResult) {
+      fallbackResult = { transcript: alt, intent };
+    }
+    // Prefer the first alternative that resolves directly to a concrete known action/track/playlist
+    if (intent.type !== 'unknown' && intent.type !== 'search-and-play') {
+      return { transcript: alt, intent };
+    }
+  }
+
+  return fallbackResult || { transcript: primaryTranscript, intent: { type: 'unknown', raw: primaryTranscript } };
 }
 
 export interface ServerInterpretedAction {
@@ -868,7 +1030,7 @@ export async function interpretGroovyCommandWithAI(params: {
   if (serverAiUnavailable || typeof window === 'undefined') return null;
   try {
     const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), 5000);
+    const timer = window.setTimeout(() => controller.abort(), 2600);
     const res = await fetch('/api/groovy/interpret', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1115,7 +1277,7 @@ function getVoicesWithWait(callback: (voices: SpeechSynthesisVoice[]) => void): 
     }
   };
   window.speechSynthesis.addEventListener?.('voiceschanged', onVoices);
-  window.setTimeout(finish, 320);
+  window.setTimeout(finish, 90);
 }
 
 function speakWithBrowserFallback(
@@ -1138,7 +1300,7 @@ function speakWithBrowserFallback(
     try {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 1.02;
+      utterance.rate = 1.08;
       utterance.volume = 0.95;
 
       const { voice, isLikelyFemale, isNeuralOrNatural } = pickNaturalFemaleGroovyVoice(voices);
@@ -1236,7 +1398,7 @@ export function speakGroovyReply(
 
   const controller = new AbortController();
   activeTtsAbort = controller;
-  const timeout = window.setTimeout(() => controller.abort(), 7500);
+  const timeout = window.setTimeout(() => controller.abort(), 1350);
 
   fetch('/api/groovy/tts', {
     method: 'POST',

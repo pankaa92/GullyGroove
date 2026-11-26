@@ -15,6 +15,7 @@ import {
   extractGroovyWakeCommand,
   interpretGroovyCommandWithAI,
   parseGroovyIntent,
+  parseGroovyIntentFromAlternatives,
   playGroovyWakeChime,
   speakGroovyReply,
   stopGroovySpeech,
@@ -69,6 +70,17 @@ function getSpeechRecognitionCtor(): SpeechRecognitionCtor | null {
     webkitSpeechRecognition?: SpeechRecognitionCtor;
   };
   return win.SpeechRecognition || win.webkitSpeechRecognition || null;
+}
+
+function collectTranscriptAlternatives(res: BrowserSpeechRecognitionResult): string[] {
+  const alts: string[] = [];
+  for (let altIdx = 0; altIdx < res.length; altIdx++) {
+    const altText = (res[altIdx]?.transcript || '').trim();
+    if (altText && !alts.includes(altText)) {
+      alts.push(altText);
+    }
+  }
+  return alts;
 }
 
 function pickBestTranscript(res: BrowserSpeechRecognitionResult): string {
@@ -180,12 +192,13 @@ export function GroovyAssistant({
   const restartTimerRef = useRef<number | null>(null);
   const startDelayTimerRef = useRef<number | null>(null);
   const armedTimerRef = useRef<number | null>(null);
+  const interimFinalizeTimerRef = useRef<number | null>(null);
+  const latestInterimAltsRef = useRef<string[]>([]);
   const standbyStartedAtRef = useRef(0);
   const lastStandbyActivityAtRef = useRef(0);
   const consecutiveWakeErrorsRef = useRef(0);
   const lastCommandSigRef = useRef<{ sig: string; at: number }>({ sig: '', at: 0 });
   const permissionDeniedRef = useRef(false);
-  const hasGreetedSessionRef = useRef(false);
   const greetingActiveRef = useRef(false);
   const panelOpenRef = useRef(panelOpen);
   panelOpenRef.current = panelOpen;
@@ -284,29 +297,31 @@ export function GroovyAssistant({
         setPanelOpen(false);
       }
 
-      const finalize = () => {
-        if (options?.resumePausedMusic) {
-          resumeMusicIfNeeded();
-        }
-        setPhase(
-          options?.resumePhaseAfter ??
-            (handsFreeWakeRef.current ? 'standby' : 'idle')
-        );
-      };
+      // Resume paused music immediately so playback never stalls waiting for TTS round-trips
+      if (options?.resumePausedMusic) {
+        resumeMusicIfNeeded();
+      }
+
+      const targetPhase =
+        options?.resumePhaseAfter ?? (handsFreeWakeRef.current ? 'standby' : 'idle');
 
       if (!latestRef.current.voiceRepliesEnabled) {
-        finalize();
+        setPhase(targetPhase);
         return;
       }
 
       isSpeakingRef.current = true;
-      setPhase('speaking');
       speakGroovyReply(message, {
+        onStart: () => {
+          if (isSpeakingRef.current) {
+            setPhase('speaking');
+          }
+        },
         onEnd: () => {
           window.setTimeout(() => {
             isSpeakingRef.current = false;
-            finalize();
-          }, 260);
+            setPhase(targetPhase);
+          }, 40);
         },
       });
     },
@@ -334,6 +349,30 @@ export function GroovyAssistant({
   const executeSearchAndPlay = useCallback(
     async (query: string, customReply?: string): Promise<boolean> => {
       const state = latestRef.current;
+
+      // Fast-path: check local catalog / artist / language matches immediately without network wait
+      const localIntent = parseGroovyIntent(`play ${query}`, state.playlists, state.tracks);
+      if (localIntent.type === 'play-track') {
+        resumeMusicAfterVoiceRef.current = false;
+        state.onPlayTrack(localIntent.track, localIntent.queue);
+        replyWithVoice(
+          customReply ||
+            (localIntent.matchedLabel
+              ? `Playing ${localIntent.matchedLabel}.`
+              : `Playing ${localIntent.track.title} by ${localIntent.track.artist}.`),
+          { autoClosePanel: true }
+        );
+        return true;
+      }
+      if (localIntent.type === 'play-playlist') {
+        resumeMusicAfterVoiceRef.current = false;
+        state.onPlayPlaylist(localIntent.playlist.id);
+        replyWithVoice(customReply || `Playing ${localIntent.playlist.title}.`, {
+          autoClosePanel: true,
+        });
+        return true;
+      }
+
       try {
         const results = await searchCatalog({ query }, true);
         const combined = [...(results.localTracks || []), ...(results.externalTracks || [])].filter(
@@ -358,9 +397,17 @@ export function GroovyAssistant({
   );
 
   const executeGroovyCommand = useCallback(
-    async (rawText: string) => {
+    async (rawText: string, alternatives?: string[]) => {
       greetingActiveRef.current = false;
-      const cleaned = rawText.trim();
+      const candidateList =
+        alternatives && alternatives.length > 0 ? alternatives : [rawText];
+      const state = latestRef.current;
+      const parsed = parseGroovyIntentFromAlternatives(
+        candidateList,
+        state.playlists,
+        state.tracks
+      );
+      const cleaned = (parsed.transcript || rawText).trim();
       if (!cleaned) return;
 
       const sig = cleaned.toLowerCase();
@@ -376,8 +423,7 @@ export function GroovyAssistant({
       setLastUserQuery(cleaned);
       setLiveTranscript('');
 
-      const state = latestRef.current;
-      const intent = parseGroovyIntent(cleaned, state.playlists, state.tracks);
+      const intent = parsed.intent;
 
       switch (intent.type) {
         case 'wake-only': {
@@ -564,9 +610,14 @@ export function GroovyAssistant({
         case 'play-track':
           resumeMusicAfterVoiceRef.current = false;
           state.onPlayTrack(intent.track, intent.queue);
-          replyWithVoice(`Playing ${intent.track.title}.`, {
-            autoClosePanel: true,
-          });
+          replyWithVoice(
+            intent.matchedLabel
+              ? `Playing ${intent.matchedLabel}.`
+              : `Playing ${intent.track.title}.`,
+            {
+              autoClosePanel: true,
+            }
+          );
           return;
         case 'search-and-play': {
           setGroovyReply(`Searching for "${intent.query}"...`);
@@ -767,6 +818,11 @@ export function GroovyAssistant({
       window.clearTimeout(startDelayTimerRef.current);
       startDelayTimerRef.current = null;
     }
+    if (interimFinalizeTimerRef.current) {
+      window.clearTimeout(interimFinalizeTimerRef.current);
+      interimFinalizeTimerRef.current = null;
+    }
+    latestInterimAltsRef.current = [];
     const rec = recognitionRef.current;
     recognitionRef.current = null;
     recognitionModeRef.current = null;
@@ -834,8 +890,8 @@ export function GroovyAssistant({
       const rec = new Ctor();
       rec.continuous = mode === 'wake-standby';
       rec.interimResults = true;
-      // en-US catches "Groovy" / "Hey Groovy" reliably on the first call over music; one-shot uses en-IN for Indian song titles
-      rec.lang = mode === 'wake-standby' ? 'en-US' : 'en-IN';
+      // en-IN recognizes Indian accents, Hinglish commands & Indian artist names accurately in both modes
+      rec.lang = 'en-IN';
       rec.maxAlternatives = 5;
 
       rec.onstart = () => {
@@ -859,13 +915,23 @@ export function GroovyAssistant({
 
         let interim = '';
         let finalText = '';
+        let finalAlts: string[] = [];
+        let interimAlts: string[] = [];
+
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const res = event.results[i];
           const text = pickBestTranscript(res);
+          const alts = collectTranscriptAlternatives(res);
           if (res.isFinal) {
             finalText += ` ${text}`;
+            if (alts.length > 0) {
+              finalAlts = finalAlts.length === 0 ? alts : finalAlts.map((prev, idx) => `${prev} ${alts[idx] || alts[0]}`.trim());
+            }
           } else {
             interim += ` ${text}`;
+            if (alts.length > 0) {
+              interimAlts = interimAlts.length === 0 ? alts : interimAlts.map((prev, idx) => `${prev} ${alts[idx] || alts[0]}`.trim());
+            }
           }
         }
 
@@ -873,6 +939,45 @@ export function GroovyAssistant({
         if (interimTrimmed) {
           if (mode === 'one-shot' || Date.now() < armedUntilRef.current) {
             setLiveTranscript(interimTrimmed);
+            if (mode === 'one-shot') {
+              latestInterimAltsRef.current = interimAlts.length > 0 ? interimAlts : [interimTrimmed];
+              if (interimFinalizeTimerRef.current) {
+                window.clearTimeout(interimFinalizeTimerRef.current);
+              }
+              // Early-finalize after short pause so Chrome doesn't stall 2s waiting for end-of-speech
+              const quickCheck = parseGroovyIntentFromAlternatives(
+                latestInterimAltsRef.current,
+                latestRef.current.playlists,
+                latestRef.current.tracks
+              );
+              const isHighConfidenceLocal =
+                quickCheck.intent.type !== 'unknown' &&
+                quickCheck.intent.type !== 'search-and-play' &&
+                quickCheck.intent.type !== 'wake-only';
+              const waitMs = isHighConfidenceLocal ? 580 : 900;
+
+              interimFinalizeTimerRef.current = window.setTimeout(() => {
+                if (
+                  recognitionRef.current !== rec ||
+                  handledOneShotResultRef.current ||
+                  !activeListeningRef.current
+                ) {
+                  return;
+                }
+                const altsToRun = latestInterimAltsRef.current;
+                const primary = altsToRun[0] || interimTrimmed;
+                if (!primary) return;
+                handledOneShotResultRef.current = true;
+                activeListeningRef.current = false;
+                armedUntilRef.current = 0;
+                try {
+                  rec.stop();
+                } catch {
+                  // ignore
+                }
+                void executeGroovyCommand(primary, altsToRun);
+              }, waitMs);
+            }
           } else {
             const wakeCheck = extractGroovyWakeCommand(interimTrimmed);
             if (wakeCheck.hasWakeWord) {
@@ -885,7 +990,13 @@ export function GroovyAssistant({
         const finalTrimmed = finalText.trim();
         if (!finalTrimmed) return;
 
+        if (interimFinalizeTimerRef.current) {
+          window.clearTimeout(interimFinalizeTimerRef.current);
+          interimFinalizeTimerRef.current = null;
+        }
+
         if (mode === 'one-shot') {
+          if (handledOneShotResultRef.current) return;
           handledOneShotResultRef.current = true;
           activeListeningRef.current = false;
           armedUntilRef.current = 0;
@@ -894,7 +1005,10 @@ export function GroovyAssistant({
           } catch {
             // ignore
           }
-          void executeGroovyCommand(finalTrimmed);
+          void executeGroovyCommand(
+            finalTrimmed,
+            finalAlts.length > 0 ? finalAlts : [finalTrimmed]
+          );
           return;
         }
 
@@ -909,12 +1023,18 @@ export function GroovyAssistant({
             armedUntilRef.current = 0;
             if (armedTimerRef.current) window.clearTimeout(armedTimerRef.current);
             pauseMusicTemporarily();
-            void executeGroovyCommand(command);
+            const wakeAlts = finalAlts
+              .map((a) => extractGroovyWakeCommand(a).command || a)
+              .filter(Boolean);
+            void executeGroovyCommand(command, wakeAlts.length > 0 ? wakeAlts : [command]);
           }
         } else if (isArmed) {
           armedUntilRef.current = 0;
           if (armedTimerRef.current) window.clearTimeout(armedTimerRef.current);
-          void executeGroovyCommand(finalTrimmed);
+          void executeGroovyCommand(
+            finalTrimmed,
+            finalAlts.length > 0 ? finalAlts : [finalTrimmed]
+          );
         }
       };
 
@@ -1028,9 +1148,9 @@ export function GroovyAssistant({
         }
       };
 
-      // Give Chromium/mobile audio focus ~160ms to settle when music was just paused or a prior recognizer was aborted
+      // Give Chromium/mobile audio focus ~75ms to settle when music was just paused or a prior recognizer was aborted
       if (hadExistingRecognition || didPauseMusic) {
-        startDelayTimerRef.current = window.setTimeout(beginStart, 160);
+        startDelayTimerRef.current = window.setTimeout(beginStart, 75);
       } else {
         beginStart();
       }
@@ -1135,45 +1255,12 @@ export function GroovyAssistant({
       isSpeakingRef.current = false;
     }
 
-    const isFirstSessionOpen = !hasGreetedSessionRef.current;
-    hasGreetedSessionRef.current = true;
     panelOpenRef.current = true;
     setPanelOpen(true);
-
-    if (isFirstSessionOpen) {
-      const greeting = "Hey there! I'm Groovy. What's the vibe today?";
-      setGroovyReply(greeting);
-      setMicError(null);
-      pauseMusicTemporarily();
-
-      if (latestRef.current.voiceRepliesEnabled) {
-        greetingActiveRef.current = true;
-        isSpeakingRef.current = true;
-        setPhase('speaking');
-        speakGroovyReply(greeting, {
-          onEnd: () => {
-            window.setTimeout(() => {
-              isSpeakingRef.current = false;
-              const shouldListenNext = greetingActiveRef.current && panelOpenRef.current;
-              greetingActiveRef.current = false;
-              if (!shouldListenNext) return;
-              if (speechSupported) {
-                startRecognition('one-shot');
-              } else {
-                resumeMusicIfNeeded();
-                setPhase(handsFreeWakeRef.current ? 'standby' : 'idle');
-                setMicError(
-                  'Voice input is unavailable in this browser. Type your command below for Groovy!'
-                );
-              }
-            }, 200);
-          },
-        });
-        return;
-      }
-    }
+    setMicError(null);
 
     if (speechSupported) {
+      setGroovyReply('Listening... Say e.g. "Play Arijit songs" or "Play 2 AM playlist".');
       startRecognition('one-shot');
     } else {
       setMicError(
@@ -1181,7 +1268,6 @@ export function GroovyAssistant({
       );
     }
   }, [
-    pauseMusicTemporarily,
     phase,
     resumeMusicIfNeeded,
     speechSupported,
