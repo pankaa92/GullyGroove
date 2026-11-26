@@ -43,16 +43,11 @@ import type {
   ProviderStatus,
   Track,
 } from './types/music';
-import { formatTotalMinutes } from './utils/format';
 import {
   LANGUAGE_FILTERS,
   matchesLanguageFilter,
   type LanguageFilter,
 } from './utils/languageFilter';
-import {
-  analyzePlaylistProfile,
-  formatPlaylistVibeLine,
-} from './utils/playlistRecommendations';
 
 type ActiveTab = 'discover' | 'playlists' | 'search' | 'vault' | 'playlist-detail';
 type RegionFilter = 'All' | 'India' | 'Pan-India' | 'Global';
@@ -608,17 +603,12 @@ export default function App() {
       });
     }
 
-    const vibeLine = pl
-      ? formatPlaylistVibeLine(analyzePlaylistProfile(pl, allTracks))
-      : '';
-
     return {
       playlist: pl,
       allTracks,
       languageMatchedCount: languageMatchedTracks.length,
       displayedTracks,
       directCount,
-      vibeLine,
     };
   }, [
     selectedPlaylistId,
@@ -1215,22 +1205,6 @@ export default function App() {
                       <p className="text-xs sm:text-sm text-slate-300 max-w-2xl leading-relaxed">
                         {activePlaylist.playlist.description}
                       </p>
-
-                      <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 text-xs text-slate-400 font-mono-tabular">
-                        <span>Curated by {activePlaylist.playlist.curatedBy}</span>
-                        <span aria-hidden="true">·</span>
-                        <span>{activePlaylist.allTracks.length} tracks</span>
-                        <span aria-hidden="true">·</span>
-                        <span>
-                          {formatTotalMinutes(activePlaylist.playlist.totalDurationSec)}
-                        </span>
-                      </div>
-
-                      {activePlaylist.vibeLine ? (
-                        <p className="text-[11px] text-slate-300/90 font-mono-tabular">
-                          Musical DNA · {activePlaylist.vibeLine}
-                        </p>
-                      ) : null}
 
                       <div className="flex flex-wrap items-center justify-center md:justify-start gap-2.5 pt-2">
                         <button
