@@ -238,25 +238,25 @@ export const StudioWaveformScrubber = memo(function StudioWaveformScrubber({
           />
         </div>
 
-        <div className="flex items-center justify-between gap-2 text-[10px] sm:text-[11px] font-mono-tabular">
+        <div className="flex items-center justify-between gap-1.5 text-[10px] sm:text-[11px] font-mono-tabular">
           <button
             type="button"
             onClick={() => onSeek(hookStartSec)}
-            className="inline-flex items-center gap-1 text-violet-300 hover:text-white transition-colors"
+            className="inline-flex items-center gap-1 text-violet-300 hover:text-white transition-colors shrink-0"
             title="Jump to hook start"
           >
             <Scissors className="w-3 h-3" />
             <span>Start {formatDuration(hookStartSec)}</span>
           </button>
 
-          <span className="text-slate-400 font-sans hidden sm:inline">
+          <span className="text-slate-400 font-sans text-center truncate">
             Drag handles to adjust hook
           </span>
 
           <button
             type="button"
             onClick={() => onSeek(hookEndSec)}
-            className="text-cyan-300 hover:text-white transition-colors"
+            className="text-cyan-300 hover:text-white transition-colors shrink-0"
             title="Jump to hook end"
           >
             End {formatDuration(hookEndSec)}

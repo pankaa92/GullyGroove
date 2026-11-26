@@ -61,20 +61,19 @@ type ConsoleDrawerTab = 'queue' | 'recent' | null;
 const PREROLL_MIN_REMAINING_SEC = 0.4;
 const PREROLL_DRIFT_SNAP_SEC = 0.2;
 const CROSSFADE_ATTEMPT_DEBOUNCE_MS = 3500;
-const YT_BUFFER_WATCHDOG_MS = 12000;
+const YT_BUFFER_WATCHDOG_MS = 9000;
 type YtSlotMode = 'idle' | 'active' | 'precue' | 'preroll' | 'crossfade';
 
 function isLikelyYtAdDuration(
   reportedDur: number,
   track: Track | null | undefined
 ): boolean {
-  return Boolean(
-    track &&
-      track.durationSec >= 45 &&
-      Number.isFinite(reportedDur) &&
-      reportedDur > 0 &&
-      reportedDur < Math.min(35, track.durationSec * 0.45)
-  );
+  if (!track || !Number.isFinite(reportedDur) || reportedDur <= 0) return false;
+  if (track.durationSec >= 45) {
+    return reportedDur < Math.min(35, track.durationSec * 0.45);
+  }
+  // Tracks without pre-known duration (durationSec === 0): YouTube pre-roll ads are <= 30s
+  return reportedDur <= 30.5;
 }
 
 interface YTPlayerInstance {
@@ -283,6 +282,9 @@ export function PlayerBar({
   const lastCrossfadeAttemptMsRef = useRef<number>(0);
   const ytWaitCancelRef = useRef<(() => void) | null>(null);
   const ytBufferingSinceRef = useRef<number | null>(null);
+  const ytAdActiveRef = useRef<[boolean, boolean]>([false, false]);
+  const ytAdRetriedRef = useRef<[boolean, boolean]>([false, false]);
+  const ytBlockedRetryDoneRef = useRef<[boolean, boolean]>([false, false]);
   const wakeLockRef = useRef<{ release: () => Promise<void> } | null>(null);
 
   // Center Studio Console Stage Slot measurement (keeps YT iframe locked inside Center Screen with 0 teardown)
@@ -313,7 +315,13 @@ export function PlayerBar({
   const [internalMuted, setInternalMuted] = useState(false);
   const volume = controlledVolume ?? internalVolume;
   const muted = controlledMuted ?? internalMuted;
-  const effectiveMasterGain = muted ? 0 : volume * (audioDucking ? 0.18 : 1);
+  const effectiveMasterGain = !isDesktopViewport
+    ? audioDucking
+      ? 0.18
+      : 1
+    : muted
+      ? 0
+      : volume * (audioDucking ? 0.18 : 1);
 
   const setVolume = useCallback(
     (nextVol: number) => {
@@ -457,6 +465,14 @@ export function PlayerBar({
     window.addEventListener('resize', syncViewport);
     return () => window.removeEventListener('resize', syncViewport);
   }, []);
+
+  // Lock volume to 100% and unmuted in mobile view (< 1024px) where volume controls are hidden
+  useEffect(() => {
+    if (!isDesktopViewport) {
+      if (volume !== 1) setVolume(1);
+      if (muted) setMuted(false);
+    }
+  }, [isDesktopViewport, volume, muted, setVolume, setMuted]);
 
   const measureStageSlot = useCallback(() => {
     const el = stageSlotRef.current;
@@ -711,8 +727,16 @@ export function PlayerBar({
     const player = ytPlayersRef.current[idx];
     if (!player || !ytReadyRef.current[idx]) return;
     try {
-      if (mutedRef.current || volumeRef.current === 0 || gain01 <= 0) {
+      if (
+        ytAdActiveRef.current[idx] ||
+        mutedRef.current ||
+        volumeRef.current === 0 ||
+        gain01 <= 0
+      ) {
         player.mute();
+        if (ytAdActiveRef.current[idx]) {
+          player.setVolume(0);
+        }
       } else {
         player.unMute();
         player.setVolume(Math.max(0, Math.min(100, Math.round(gain01 * 100))));
@@ -721,6 +745,51 @@ export function PlayerBar({
       // ignore transient calls
     }
   }, []);
+
+  const tryYtFallbackEmbed = useCallback(
+    (slotIdx: 0 | 1, isStandbySlot: boolean): boolean => {
+      const desiredTrack = ytDesiredTrackRef.current[slotIdx];
+      if (!desiredTrack) return false;
+      const fallbacks = desiredTrack.fallbackEmbedIds || [];
+      const nextRetryIdx = ytEmbedRetryIdxRef.current[slotIdx];
+      if (nextRetryIdx >= fallbacks.length) return false;
+
+      const backupVideoId = fallbacks[nextRetryIdx];
+      ytEmbedRetryIdxRef.current[slotIdx] = nextRetryIdx + 1;
+      const player = ytPlayersRef.current[slotIdx];
+      if (!player || !ytReadyRef.current[slotIdx] || !backupVideoId) return false;
+
+      const hookStart = hookModeRef.current
+        ? getHookForTrack(desiredTrack, desiredTrack.durationSec || 218).startSec
+        : 0;
+      try {
+        ytAdActiveRef.current[slotIdx] = false;
+        ytBlockedRetryDoneRef.current[slotIdx] = false;
+        if (!isStandbySlot) {
+          setYtBuffering(true);
+          ytBufferingSinceRef.current = Date.now();
+        }
+        if (ytDeckModeRef.current[slotIdx] === 'precue') {
+          player.cueVideoById?.({
+            videoId: backupVideoId,
+            startSeconds: hookStart,
+          });
+        } else {
+          player.loadVideoById?.({
+            videoId: backupVideoId,
+            startSeconds: hookStart,
+          });
+          if (isPlayingRef.current || ytStartZeroRef.current[slotIdx]) {
+            player.playVideo();
+          }
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [getHookForTrack]
+  );
 
   const cancelTransition = useCallback(
     (stopIncoming = true) => {
@@ -752,6 +821,9 @@ export function PlayerBar({
           ytPreRolledRef.current[inYt] = false;
           ytPrerollStartSecRef.current[inYt] = 0;
           ytDeckModeRef.current[inYt] = 'idle';
+          ytAdActiveRef.current[inYt] = false;
+          ytAdRetriedRef.current[inYt] = false;
+          ytBlockedRetryDoneRef.current[inYt] = false;
           setYtSlotTracks((prev) => {
             const next: [Track | null, Track | null] = [...prev] as [
               Track | null,
@@ -807,6 +879,9 @@ export function PlayerBar({
       ytPreRolledRef.current = [false, false];
       ytPrerollStartSecRef.current = [0, 0];
       ytDeckModeRef.current = ['idle', 'idle'];
+      ytAdActiveRef.current = [false, false];
+      ytAdRetriedRef.current = [false, false];
+      ytBlockedRetryDoneRef.current = [false, false];
       setYtSlotTracks([null, null]);
     } else {
       const inYt = session.incomingYtDeckIdx;
@@ -823,12 +898,28 @@ export function PlayerBar({
         try {
           const cur = inPlayer.getCurrentTime();
           const dur = inPlayer.getDuration();
-          if (Number.isFinite(cur)) setCurrentTime(cur);
-          if (
-            Number.isFinite(dur) &&
-            dur > 0 &&
-            !isLikelyYtAdDuration(dur, session.toTrack)
-          ) {
+          const incomingHasAd = isLikelyYtAdDuration(dur, session.toTrack);
+          ytAdActiveRef.current[inYt] = incomingHasAd;
+          if (incomingHasAd) {
+            inPlayer.mute();
+            inPlayer.setVolume(0);
+          } else {
+            if (hookModeRef.current) {
+              const hookStart = getHookForTrack(
+                session.toTrack,
+                Number.isFinite(dur) && dur > 0 ? dur : session.toTrack.durationSec || 218
+              ).startSec;
+              if (Number.isFinite(cur) && cur < hookStart - 1.5) {
+                inPlayer.seekTo(hookStart, true);
+                setCurrentTime(hookStart);
+              } else if (Number.isFinite(cur)) {
+                setCurrentTime(cur);
+              }
+            } else if (Number.isFinite(cur)) {
+              setCurrentTime(cur);
+            }
+          }
+          if (Number.isFinite(dur) && dur > 0 && !incomingHasAd) {
             setDuration(dur);
           } else {
             setDuration(session.toTrack.durationSec || 0);
@@ -844,6 +935,9 @@ export function PlayerBar({
         ytPreRolledRef.current[outYt] = false;
         ytPrerollStartSecRef.current[outYt] = 0;
         ytDeckModeRef.current[outYt] = 'idle';
+        ytAdActiveRef.current[outYt] = false;
+        ytAdRetriedRef.current[outYt] = false;
+        ytBlockedRetryDoneRef.current[outYt] = false;
         setYtSlotTracks((prev) => {
           const next: [Track | null, Track | null] = [...prev] as [
             Track | null,
@@ -864,7 +958,7 @@ export function PlayerBar({
     transitionLockFromIdRef.current = '';
     lastCrossfadeAttemptMsRef.current = 0;
     onCrossfadeCompleteRef.current(session.toTrack);
-  }, [clearDeck, getDeck, setYtDeckVolume]);
+  }, [clearDeck, getDeck, getHookForTrack, setYtDeckVolume]);
 
   const applyFadeVolumes = useCallback(
     (session: TransitionSession, progress: number) => {
@@ -947,6 +1041,9 @@ export function PlayerBar({
     ytPreRolledRef.current[slotIdx] = false;
     ytStartZeroRef.current[slotIdx] = false;
     ytPrerollStartSecRef.current[slotIdx] = 0;
+    ytAdActiveRef.current[slotIdx] = false;
+    ytAdRetriedRef.current[slotIdx] = false;
+    ytBlockedRetryDoneRef.current[slotIdx] = false;
     setYtSlotTracks((prev) => {
       if (!prev[slotIdx]) return prev;
       const next: [Track | null, Track | null] = [...prev] as [
@@ -1627,6 +1724,9 @@ export function PlayerBar({
       ytPreRolledRef.current = [false, false];
       ytPrerollStartSecRef.current = [0, 0];
       ytDeckModeRef.current = ['idle', 'idle'];
+      ytAdActiveRef.current = [false, false];
+      ytAdRetriedRef.current = [false, false];
+      ytBlockedRetryDoneRef.current = [false, false];
       setYtSlotTracks([null, null]);
       setMinimizedDrawerTab(null);
       setConsoleDrawerTab(null);
@@ -1716,6 +1816,9 @@ export function PlayerBar({
           ytPreRolledRef.current = [false, false];
           ytPrerollStartSecRef.current = [0, 0];
           ytDeckModeRef.current = ['active', 'idle'];
+          ytAdActiveRef.current = [false, false];
+          ytAdRetriedRef.current = [false, false];
+          ytBlockedRetryDoneRef.current = [false, false];
           setYtSlotTracks([currentTrack, null]);
         }
       }
@@ -1744,6 +1847,9 @@ export function PlayerBar({
       ytPreRolledRef.current = [false, false];
       ytPrerollStartSecRef.current = [0, 0];
       ytDeckModeRef.current = ['idle', 'idle'];
+      ytAdActiveRef.current = [false, false];
+      ytAdRetriedRef.current = [false, false];
+      ytBlockedRetryDoneRef.current = [false, false];
       setYtSlotTracks([null, null]);
       transitionLockFromIdRef.current = '';
       lastCrossfadeAttemptMsRef.current = 0;
@@ -1850,6 +1956,9 @@ export function PlayerBar({
         }
         if (!sameTrack) {
           ytEmbedRetryIdxRef.current[slotIdx] = 0;
+          ytAdActiveRef.current[slotIdx] = false;
+          ytAdRetriedRef.current[slotIdx] = false;
+          ytBlockedRetryDoneRef.current[slotIdx] = false;
         }
 
         if (isPrecueOnly) {
@@ -1927,6 +2036,9 @@ export function PlayerBar({
       ytInitializingRef.current[slotIdx] = true;
       ytDeckTrackIdRef.current[slotIdx] = track.id;
       ytEmbedRetryIdxRef.current[slotIdx] = 0;
+      ytAdActiveRef.current[slotIdx] = false;
+      ytAdRetriedRef.current[slotIdx] = false;
+      ytBlockedRetryDoneRef.current[slotIdx] = false;
       if (slotIdx === activeYtDeckIdxRef.current && slotMode === 'active') {
         setYtBuffering(true);
       }
@@ -2272,44 +2384,8 @@ export function PlayerBar({
                 setYtBuffering(false);
               }
               ytAwaitingPlayRef.current[slotIdx] = false;
-              const desiredTrack = ytDesiredTrackRef.current[slotIdx];
-              if (!desiredTrack) return;
-
-              const fallbacks = desiredTrack.fallbackEmbedIds || [];
-              const nextRetryIdx = ytEmbedRetryIdxRef.current[slotIdx];
-              if (nextRetryIdx < fallbacks.length) {
-                const backupVideoId = fallbacks[nextRetryIdx];
-                ytEmbedRetryIdxRef.current[slotIdx] = nextRetryIdx + 1;
-                const player = ytPlayersRef.current[slotIdx];
-                if (player && ytReadyRef.current[slotIdx] && backupVideoId) {
-                  const hookStart = hookModeRef.current
-                    ? getHookForTrack(desiredTrack, desiredTrack.durationSec || 218)
-                        .startSec
-                    : 0;
-                  try {
-                    if (!isStandbySlot) {
-                      setYtBuffering(true);
-                      ytBufferingSinceRef.current = Date.now();
-                    }
-                    if (ytDeckModeRef.current[slotIdx] === 'precue') {
-                      player.cueVideoById?.({
-                        videoId: backupVideoId,
-                        startSeconds: hookStart,
-                      });
-                    } else {
-                      player.loadVideoById?.({
-                        videoId: backupVideoId,
-                        startSeconds: hookStart,
-                      });
-                      if (isPlayingRef.current || ytStartZeroRef.current[slotIdx]) {
-                        player.playVideo();
-                      }
-                    }
-                    return;
-                  } catch {
-                    // fall through to skip logic below
-                  }
-                }
+              if (tryYtFallbackEmbed(slotIdx, isStandbySlot)) {
+                return;
               }
 
               if (isStandbySlot) {
@@ -2344,7 +2420,13 @@ export function PlayerBar({
         ytPlayersRef.current[slotIdx] = player;
       });
     },
-    [cancelTransition, finishTransition, getHookForTrack, setYtDeckVolume]
+    [
+      cancelTransition,
+      finishTransition,
+      getHookForTrack,
+      setYtDeckVolume,
+      tryYtFallbackEmbed,
+    ]
   );
 
   // Destroy persistent YT players only on unmount
@@ -2524,23 +2606,44 @@ export function PlayerBar({
           player.playVideo();
         }
 
+        const lite = isLiteConnection();
+        const blockedLimitMs = lite ? 6000 : 3500;
+        const hardBufferLimitMs = lite ? 18000 : YT_BUFFER_WATCHDOG_MS;
+
         if (
-          (ytState === -1 || ytState === 3) &&
+          (ytState === -1 || ytState === 3 || ytState === 5) &&
           !transitionRef.current &&
           !userPausedRef.current
         ) {
           setYtBuffering(true);
           if (ytBufferingSinceRef.current === null) {
             ytBufferingSinceRef.current = Date.now();
-          } else if (Date.now() - ytBufferingSinceRef.current > YT_BUFFER_WATCHDOG_MS) {
-            ytBufferingSinceRef.current = null;
-            setYtBuffering(false);
-            setAudioError('YouTube stream stalled; skipping to next track...');
-            onPlaybackEndedRef.current();
-            return;
+            ytBlockedRetryDoneRef.current[activeSlot] = false;
+          } else {
+            const elapsedMs = Date.now() - ytBufferingSinceRef.current;
+            if ((ytState === -1 || ytState === 5) && elapsedMs >= 1800 && !ytBlockedRetryDoneRef.current[activeSlot]) {
+              ytBlockedRetryDoneRef.current[activeSlot] = true;
+              try {
+                player.playVideo();
+              } catch {
+                // ignore
+              }
+            }
+            const limitMs = ytState === 3 ? hardBufferLimitMs : blockedLimitMs;
+            if (elapsedMs > limitMs) {
+              ytBufferingSinceRef.current = null;
+              setYtBuffering(false);
+              if (tryYtFallbackEmbed(activeSlot, false)) {
+                return;
+              }
+              setAudioError('YouTube stream stalled; skipping to next track...');
+              onPlaybackEndedRef.current();
+              return;
+            }
           }
         } else if (ytState === 1) {
           ytBufferingSinceRef.current = null;
+          ytBlockedRetryDoneRef.current[activeSlot] = false;
           setYtBuffering(false);
         }
 
@@ -2550,13 +2653,42 @@ export function PlayerBar({
         const isAdPlaying = isLikelyYtAdDuration(dur, activeTrack);
 
         if (isAdPlaying) {
-          // Keep UI track duration intact and leave YouTube Skip Ad button unobstructed
+          // Bajao-style YouTube ad avoidance: mute ad audio immediately and try ad-free fallback ID if available
+          ytAdActiveRef.current[activeSlot] = true;
           ytBufferingSinceRef.current = null;
           setYtBuffering(false);
+          try {
+            player.mute();
+            player.setVolume(0);
+          } catch {
+            // ignore
+          }
+          if (!ytAdRetriedRef.current[activeSlot]) {
+            ytAdRetriedRef.current[activeSlot] = true;
+            if (tryYtFallbackEmbed(activeSlot, false)) {
+              return;
+            }
+          }
           if (activeTrack?.durationSec) {
             setDuration(activeTrack.durationSec);
           }
         } else {
+          if (ytAdActiveRef.current[activeSlot]) {
+            ytAdActiveRef.current[activeSlot] = false;
+            setYtDeckVolume(activeSlot, effectiveGainRef.current);
+            // If ad reset playhead to 0 in Hook Mode, snap right back to the hook drop
+            if (hookModeRef.current && activeTrack) {
+              const resolvedDur =
+                Number.isFinite(dur) && dur > 0 ? dur : activeTrack.durationSec || 218;
+              const hookWin = getHookForTrack(activeTrack, resolvedDur);
+              if (Number.isFinite(cur) && cur < hookWin.startSec - 1.5) {
+                player.seekTo(hookWin.startSec, true);
+                setCurrentTime(hookWin.startSec);
+                return;
+              }
+            }
+          }
+
           if (Number.isFinite(cur)) setCurrentTime(cur);
           if (Number.isFinite(dur) && dur > 0) {
             setDuration(dur);
@@ -2565,6 +2697,42 @@ export function PlayerBar({
             if (now - lastMsPosSyncRef.current >= 900) {
               lastMsPosSyncRef.current = now;
               updateMediaSessionPosition(cur, dur);
+            }
+          }
+        }
+
+        // Also keep standby preroll/crossfade deck muted & ad-safe
+        const standbySlot: 0 | 1 = activeSlot === 0 ? 1 : 0;
+        const standbyMode = ytDeckModeRef.current[standbySlot];
+        if (standbyMode === 'preroll' || standbyMode === 'crossfade') {
+          const standbyPlayer = ytPlayersRef.current[standbySlot];
+          const standbyTrack = ytDesiredTrackRef.current[standbySlot];
+          if (standbyPlayer && ytReadyRef.current[standbySlot] && standbyTrack) {
+            try {
+              const sDur = standbyPlayer.getDuration();
+              const standbyHasAd = isLikelyYtAdDuration(sDur, standbyTrack);
+              if (standbyHasAd) {
+                ytAdActiveRef.current[standbySlot] = true;
+                standbyPlayer.mute();
+                standbyPlayer.setVolume(0);
+                if (!ytAdRetriedRef.current[standbySlot]) {
+                  ytAdRetriedRef.current[standbySlot] = true;
+                  tryYtFallbackEmbed(standbySlot, standbyMode === 'preroll');
+                }
+              } else if (ytAdActiveRef.current[standbySlot]) {
+                ytAdActiveRef.current[standbySlot] = false;
+                if (hookModeRef.current) {
+                  const sCur = standbyPlayer.getCurrentTime();
+                  const resolvedSDur =
+                    Number.isFinite(sDur) && sDur > 0 ? sDur : standbyTrack.durationSec || 218;
+                  const sHookStart = getHookForTrack(standbyTrack, resolvedSDur).startSec;
+                  if (Number.isFinite(sCur) && sCur < sHookStart - 1.5) {
+                    standbyPlayer.seekTo(sHookStart, true);
+                  }
+                }
+              }
+            } catch {
+              // ignore
             }
           }
         }
@@ -2578,7 +2746,14 @@ export function PlayerBar({
         // ignore transient calls
       }
     }, 120);
-  }, [isCurrentYouTube, isPlaying, maybeStartCrossfade]);
+  }, [
+    getHookForTrack,
+    isCurrentYouTube,
+    isPlaying,
+    maybeStartCrossfade,
+    setYtDeckVolume,
+    tryYtFallbackEmbed,
+  ]);
 
   // 60–120fps requestAnimationFrame playhead & waveform smoothness while visible
   useEffect(() => {
@@ -3701,8 +3876,8 @@ export function PlayerBar({
                   </button>
                 </div>
 
-                {/* 5. Glass Volume Bar (Visible on both Desktop & Mobile) */}
-                <div className="flex items-center gap-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] px-3 py-1.5">
+                {/* 5. Glass Volume Bar (Visible on Desktop only; hidden on mobile where volume is locked at 100%) */}
+                <div className="hidden lg:flex items-center gap-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] px-3 py-1.5">
                   <button
                     type="button"
                     onClick={() => setMuted((prev) => !prev)}
