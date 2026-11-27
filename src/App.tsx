@@ -44,10 +44,16 @@ import type {
   Track,
 } from './types/music';
 import {
+  loadCrossfadeSettings,
+  saveCrossfadeSettings,
+  type CrossfadeSettings,
+} from './utils/hookTiming';
+import {
   LANGUAGE_FILTERS,
   matchesLanguageFilter,
   type LanguageFilter,
 } from './utils/languageFilter';
+import { sequencePlaylistBajaoStyle } from './utils/playlistRefinement';
 
 type ActiveTab = 'discover' | 'playlists' | 'search' | 'vault' | 'playlist-detail';
 type RegionFilter = 'All' | 'India' | 'Pan-India' | 'Global';
@@ -70,8 +76,8 @@ const FEATURED_VOICES: FeaturedVoiceCard[] = [
   },
   {
     id: 'voice-90s',
-    name: 'Kumar Sanu & 90s Gold',
-    subtitle: 'Golden cassette romance',
+    name: 'Retro Classics & 90s Gold',
+    subtitle: '80s & 90s timeless hits',
     playlistId: '90s-hindi-classics',
     coverUrl: COVER_ASSETS.evergreenRetro,
   },
@@ -218,6 +224,14 @@ export default function App() {
       groovyVoiceTips: true,
     };
   });
+
+  const [crossfadeSettings, setCrossfadeSettings] = useState<CrossfadeSettings>(() =>
+    loadCrossfadeSettings()
+  );
+
+  useEffect(() => {
+    saveCrossfadeSettings(crossfadeSettings);
+  }, [crossfadeSettings]);
 
   useEffect(() => {
     try {
@@ -481,7 +495,8 @@ export default function App() {
       languageFilter === 'All'
         ? baseTracks
         : baseTracks.filter((t) => matchesLanguageFilter(t, languageFilter));
-    const listToPlay = matchingTracks.length > 0 ? matchingTracks : baseTracks;
+    const pool = matchingTracks.length > 0 ? matchingTracks : baseTracks;
+    const listToPlay = sequencePlaylistBajaoStyle(pool, { seedKey: playlistId });
     if (listToPlay.length > 0) {
       playTrackFromList(listToPlay[0], listToPlay);
     }
@@ -595,7 +610,11 @@ export default function App() {
       );
     }
 
-    if (playlistSort !== 'curated') {
+    if (playlistSort === 'curated') {
+      displayedTracks = sequencePlaylistBajaoStyle(displayedTracks, {
+        seedKey: pl?.id || 'playlist',
+      });
+    } else {
       displayedTracks = [...displayedTracks].sort((a, b) => {
         if (playlistSort === 'popular') return (b.plays || 0) - (a.plays || 0);
         if (playlistSort === 'bpm') return (b.bpm || 0) - (a.bpm || 0);
@@ -1528,10 +1547,12 @@ export default function App() {
         volume={volume}
         muted={muted}
         hookMode={hookMode}
+        crossfadeSettings={crossfadeSettings}
         audioDucking={groovyDucking}
         onVolumeChange={setVolume}
         onMutedChange={setMuted}
         onHookModeChange={setHookMode}
+        onChangeCrossfadeSettings={setCrossfadeSettings}
         onClosePlayer={() => {
           setIsPlaying(false);
           setStudioConsoleOpen(false);
@@ -1583,13 +1604,15 @@ export default function App() {
         onClose={() => setRequestModalOpen(false)}
       />
 
-      {/* Settings Modal (Theme Dark/Light, Notifications, About Groovy) */}
+      {/* Settings Modal (Theme Dark/Light, Crossfade & DJ Mode, Notifications, About Groovy) */}
       <SettingsModal
         open={settingsOpen}
         theme={theme}
         notifications={notifications}
+        crossfadeSettings={crossfadeSettings}
         onChangeTheme={setTheme}
         onChangeNotifications={setNotifications}
+        onChangeCrossfadeSettings={setCrossfadeSettings}
         onClose={() => setSettingsOpen(false)}
       />
 

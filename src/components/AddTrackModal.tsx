@@ -195,7 +195,7 @@ export function AddTrackModal({
                 className="w-full h-10 rounded-lg bg-[#09090D] border border-white/10 px-2.5 text-xs text-white focus:outline-none focus:border-violet-500"
               >
                 <option value="Indipop">Indipop</option>
-                <option value="90s Hindi Classic">90s Hindi Classic</option>
+                <option value="Retro Classics">Retro Classics (80s &amp; 90s)</option>
                 <option value="DJ Mashup">DJ Mashup</option>
                 <option value="Love Mashup">Love Mashup</option>
                 <option value="Bollywood Romantic">Bollywood Romantic</option>

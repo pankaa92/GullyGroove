@@ -71,6 +71,9 @@ export interface Track {
   audioProfile?: AudioProfile;
   hookStartSec?: number;
   hookEndSec?: number;
+  heat?: number[];
+  energy?: number;
+  musicalKey?: string;
   plays: number;
   isUserAdded?: boolean;
 }

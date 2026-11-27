@@ -5,6 +5,8 @@ export const LANGUAGE_FILTERS = [
   'Hindi',
   'Punjabi',
   'Marathi',
+  'Gujarati',
+  'Rajasthani',
   'Haryanvi',
   'Bhojpuri',
   'Bengali',
@@ -44,6 +46,10 @@ export function matchesLanguageFilter(track: Track, filter: LanguageFilter): boo
       return lang.includes('punjabi');
     case 'Marathi':
       return lang.includes('marathi');
+    case 'Gujarati':
+      return lang.includes('gujarati');
+    case 'Rajasthani':
+      return lang.includes('rajasthani');
     case 'Haryanvi':
       return lang.includes('haryanvi');
     case 'Bhojpuri':

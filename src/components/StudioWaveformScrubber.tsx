@@ -2,7 +2,7 @@ import { AudioLines, Check, RotateCcw, Scissors } from 'lucide-react';
 import { memo, useMemo, useRef } from 'react';
 import { formatDuration } from '../utils/format';
 import {
-  clampHookWindow,
+  adjustHookBoundary,
   generateWaveformBars,
   MIN_HOOK_SPAN_SEC,
 } from '../utils/hookTiming';
@@ -13,6 +13,7 @@ interface StudioWaveformScrubberProps {
   duration: number;
   isPlaying: boolean;
   bpm?: number;
+  heat?: number[];
   hookMode: boolean;
   hookStartSec: number;
   hookEndSec: number;
@@ -28,6 +29,7 @@ export const StudioWaveformScrubber = memo(function StudioWaveformScrubber({
   duration,
   isPlaying,
   bpm,
+  heat,
   hookMode,
   hookStartSec,
   hookEndSec,
@@ -37,7 +39,14 @@ export const StudioWaveformScrubber = memo(function StudioWaveformScrubber({
   onResetHook,
 }: StudioWaveformScrubberProps) {
   const waveContainerRef = useRef<HTMLDivElement | null>(null);
-  const bars = useMemo(() => generateWaveformBars(trackId, 56), [trackId]);
+  const dragStartOriginRef = useRef<number | null>(null);
+  const latestStartSecRef = useRef(hookStartSec);
+  latestStartSecRef.current = hookStartSec;
+
+  const bars = useMemo(
+    () => generateWaveformBars(trackId, 56, heat),
+    [trackId, heat]
+  );
 
   const safeDur = Math.max(20, duration || 218);
   const progressRatio = Math.max(0, Math.min(1, currentTime / safeDur));
@@ -57,21 +66,40 @@ export const StudioWaveformScrubber = memo(function StudioWaveformScrubber({
   };
 
   const handleStartChange = (nextStart: number) => {
-    const clamped = clampHookWindow(
+    const adjusted = adjustHookBoundary(
+      'start',
       nextStart,
-      Math.max(hookEndSec, nextStart + MIN_HOOK_SPAN_SEC),
-      safeDur
+      { startSec: hookStartSec, endSec: hookEndSec },
+      safeDur,
+      currentTime,
+      isPlaying
     );
-    onUpdateHook(clamped.startSec, clamped.endSec);
+    latestStartSecRef.current = adjusted.startSec;
+    onUpdateHook(adjusted.startSec, adjusted.endSec);
   };
 
   const handleEndChange = (nextEnd: number) => {
-    const clamped = clampHookWindow(
-      Math.min(hookStartSec, nextEnd - MIN_HOOK_SPAN_SEC),
+    const adjusted = adjustHookBoundary(
+      'end',
       nextEnd,
-      safeDur
+      { startSec: hookStartSec, endSec: hookEndSec },
+      safeDur,
+      currentTime,
+      isPlaying
     );
-    onUpdateHook(clamped.startSec, clamped.endSec);
+    onUpdateHook(adjusted.startSec, adjusted.endSec);
+  };
+
+  const beginStartDrag = () => {
+    dragStartOriginRef.current = hookStartSec;
+  };
+
+  const commitStartDrag = () => {
+    const origin = dragStartOriginRef.current;
+    dragStartOriginRef.current = null;
+    if (origin !== null && Math.abs(latestStartSecRef.current - origin) >= 0.5) {
+      onSeek(latestStartSecRef.current);
+    }
   };
 
   return (
@@ -186,8 +214,8 @@ export const StudioWaveformScrubber = memo(function StudioWaveformScrubber({
                     ? 'bg-gradient-to-t from-violet-500 via-fuchsia-400 to-cyan-300'
                     : 'bg-gradient-to-t from-violet-500/85 to-cyan-400/80'
                   : isPlayed
-                    ? 'bg-gradient-to-t from-violet-600/85 to-blue-400/85'
-                    : 'bg-slate-600/45 hover:bg-violet-400/60'
+                    ? 'bg-gradient-to-t from-violet-600/75 to-blue-400/75 opacity-80'
+                    : 'bg-slate-600/35 opacity-55 hover:bg-violet-400/60 hover:opacity-100'
               } ${
                 isPlaying
                   ? inHook
@@ -221,8 +249,34 @@ export const StudioWaveformScrubber = memo(function StudioWaveformScrubber({
             aria-label="Hook start time"
             min={0}
             max={Math.max(MIN_HOOK_SPAN_SEC, Math.floor(safeDur) - MIN_HOOK_SPAN_SEC)}
-            step={1}
-            value={Math.round(hookStartSec)}
+            step={0.1}
+            value={Math.min(
+              Math.max(0, hookStartSec),
+              Math.max(MIN_HOOK_SPAN_SEC, Math.floor(safeDur) - MIN_HOOK_SPAN_SEC)
+            )}
+            onPointerDown={beginStartDrag}
+            onPointerUp={commitStartDrag}
+            onPointerCancel={commitStartDrag}
+            onTouchStart={beginStartDrag}
+            onTouchEnd={commitStartDrag}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                e.preventDefault();
+                const delta = e.key === 'ArrowRight' ? 1 : -1;
+                const next = hookStartSec + delta;
+                handleStartChange(next);
+                onSeek(
+                  adjustHookBoundary(
+                    'start',
+                    next,
+                    { startSec: hookStartSec, endSec: hookEndSec },
+                    safeDur,
+                    currentTime,
+                    isPlaying
+                  ).startSec
+                );
+              }
+            }}
             onChange={(e) => handleStartChange(Number(e.target.value))}
             className="gg-dual-range absolute inset-0 w-full pointer-events-none"
           />
@@ -231,8 +285,17 @@ export const StudioWaveformScrubber = memo(function StudioWaveformScrubber({
             aria-label="Hook end time"
             min={MIN_HOOK_SPAN_SEC}
             max={Math.max(20, Math.floor(safeDur))}
-            step={1}
-            value={Math.round(hookEndSec)}
+            step={0.1}
+            value={Math.max(
+              MIN_HOOK_SPAN_SEC,
+              Math.min(Math.max(20, Math.floor(safeDur)), hookEndSec)
+            )}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                e.preventDefault();
+                handleEndChange(hookEndSec + (e.key === 'ArrowRight' ? 1 : -1));
+              }
+            }}
             onChange={(e) => handleEndChange(Number(e.target.value))}
             className="gg-dual-range absolute inset-0 w-full pointer-events-none"
           />
@@ -249,9 +312,20 @@ export const StudioWaveformScrubber = memo(function StudioWaveformScrubber({
             <span>Start {formatDuration(hookStartSec)}</span>
           </button>
 
-          <span className="text-slate-400 font-sans text-center truncate">
-            Drag handles to adjust hook
-          </span>
+          {hasCustomHook ? (
+            <button
+              type="button"
+              onClick={onResetHook}
+              className="text-violet-300 hover:text-white underline underline-offset-2 font-sans text-center truncate cursor-pointer"
+              title="Tap to reset to default hook"
+            >
+              Your hook. Tap to reset
+            </button>
+          ) : (
+            <span className="text-slate-400 font-sans text-center truncate">
+              Drag handles to adjust hook
+            </span>
+          )}
 
           <button
             type="button"

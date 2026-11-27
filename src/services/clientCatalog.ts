@@ -6,6 +6,7 @@ import type {
   SearchFilters,
   Track,
 } from '../types/music';
+import { refineTrackPlaylistIds } from '../utils/playlistRefinement';
 
 export interface CatalogOverviewData {
   playlists: PlaylistWithStats[];
@@ -69,11 +70,13 @@ function mapPlaylistIds(ids: string[]): string[] {
 }
 
 function normalizeStaticTrack(track: Track): Track {
-  return {
+  const mapped: Track = {
     ...track,
     streamUrl: track.streamUrl ? toDirectAudiusStreamUrl(track.streamUrl) : '',
     playlistIds: mapPlaylistIds(track.playlistIds || []),
   };
+  mapped.playlistIds = refineTrackPlaylistIds(mapped);
+  return mapped;
 }
 
 function isEligibleCatalogTrack(track: Track): boolean {
@@ -463,6 +466,7 @@ export async function createVaultTrack(input: NewAuthorisedTrackInput): Promise<
     plays: 1,
     isUserAdded: true,
   };
+  created.playlistIds = refineTrackPlaylistIds(created);
 
   const stored = readStoredTracks();
   stored.unshift(created);

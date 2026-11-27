@@ -1,4 +1,5 @@
 import type { Playlist, Track } from '../types/music';
+import { refineTrackPlaylistIds } from '../utils/playlistRefinement';
 import { BAJAO_SONGS } from './bajaoSongs';
 
 export const COVER_ASSETS = {
@@ -165,15 +166,15 @@ export const INITIAL_PLAYLISTS: Playlist[] = [
   },
   {
     id: '90s-hindi-classics',
-    slug: '90s-hindi-classics',
-    title: '90s Hindi Classics',
-    subtitle: 'Kumar Sanu, Udit Narayan, golden-era vinyl & evergreen Bollywood',
+    slug: 'retro-classics',
+    title: 'Retro Classics',
+    subtitle: '80s & 90s golden hits, Kishore Kumar, Kumar Sanu & evergreen classics',
     description:
-      'Relive the 1990s Bollywood melody era and golden-era vinyl classics with iconic duets, cassette-era heartbreakers, and timeless love anthems.',
-    mood: '90s & Evergreen',
+      'Relive the 80s & 90s Bollywood melody era and golden-era vinyl classics with iconic duets, cassette-era heartbreakers, and timeless retro favorites.',
+    mood: '80s, 90s & Retro',
     region: 'India',
     coverUrl: COVER_ASSETS.evergreenRetro,
-    curatedBy: '90s Cassette & Heritage Archive',
+    curatedBy: 'Retro & Heritage Archive',
     featured: true,
   },
   {
@@ -251,7 +252,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     embedId: 'suw-DufKKTA',
     externalUrl: 'https://youtu.be/suw-DufKKTA?si=7oax13jNLeR66UOu',
     attribution: 'Official YouTube Channel: M r . X',
-    playlistIds: ['bus-driver-playlist'],
+    playlistIds: ['bus-driver-playlist', '90s-hindi-classics'],
     plays: 1450000,
   },
   {
@@ -275,7 +276,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     embedId: 'zZAZqtiNe_g',
     externalUrl: 'https://youtu.be/zZAZqtiNe_g',
     attribution: 'Official YouTube Channel: MusicWorldOfficial07',
-    playlistIds: ['party-dj-hits', 'top-50-hindi', 'bus-driver-playlist'],
+    playlistIds: ['top-50-hindi', '2am-playlist', 'bus-driver-playlist'],
     plays: 3120000,
   },
   {
@@ -299,7 +300,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     embedId: '1Vns6GKPt38',
     externalUrl: 'https://youtu.be/1Vns6GKPt38',
     attribution: 'Official YouTube Channel: VS Lofi-19',
-    playlistIds: ['party-dj-hits', 'top-50-hindi', 'bus-driver-playlist'],
+    playlistIds: ['top-50-hindi', '2am-playlist', 'bus-driver-playlist'],
     plays: 1980000,
   },
   {
@@ -323,7 +324,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     embedId: 'ft7D4XIKpcs',
     externalUrl: 'https://youtu.be/ft7D4XIKpcs',
     attribution: 'Official YouTube Channel: Cupid’s Mix ESM',
-    playlistIds: ['party-dj-hits', 'evening-daru-playlist', 'top-50-hindi'],
+    playlistIds: ['evening-daru-playlist', 'top-50-hindi', '2am-playlist'],
     plays: 2150000,
   },
   {
@@ -1242,7 +1243,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/QZxdzK9',
     externalUrl: 'https://audius.co',
     attribution: 'NFThunk via Audius Open Streaming',
-    playlistIds: ['party-dj-hits', 'top-50-hindi', 'bus-driver-playlist'],
+    playlistIds: ['top-50-hindi', '2am-playlist', 'bus-driver-playlist'],
     audioProfile: { bpm: 100, rootHz: 261.63, scale: 'yaman', groove: 'bollywood-romantic', intensity: 0.78 },
     plays: 3120000,
   },
@@ -1484,7 +1485,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     embedId: 'bgkFdhct3QU',
     externalUrl: 'https://youtu.be/bgkFdhct3QU',
     attribution: 'Official YouTube Channel: Reach Music',
-    playlistIds: ['evening-daru-playlist', '90s-hindi-classics', 'party-dj-hits'],
+    playlistIds: ['evening-daru-playlist', '90s-hindi-classics'],
     plays: 3180000,
   },
   {
@@ -1580,7 +1581,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     embedId: 'axs1mSyliDU',
     externalUrl: 'https://youtu.be/axs1mSyliDU',
     attribution: 'Official YouTube Channel: UtkarshSharmaMusic',
-    playlistIds: ['evening-daru-playlist', 'party-dj-hits'],
+    playlistIds: ['evening-daru-playlist', '2am-playlist'],
     plays: 4120000,
   },
   {
@@ -1604,7 +1605,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     embedId: '4ry4dhiMeKo',
     externalUrl: 'https://youtu.be/4ry4dhiMeKo',
     attribution: 'Official YouTube Channel: Noctra',
-    playlistIds: ['evening-daru-playlist', 'top-50-hindi', 'party-dj-hits'],
+    playlistIds: ['evening-daru-playlist', 'top-50-hindi'],
     plays: 2350000,
   },
   {
@@ -2522,7 +2523,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     embedId: 'Oa4rNXtYE5Q',
     externalUrl: 'https://youtu.be/Oa4rNXtYE5Q',
     attribution: 'Official YouTube Channel: LUFI STUDIO OFFICIAL',
-    playlistIds: ['2am-playlist', 'party-dj-hits', 'evening-daru-playlist'],
+    playlistIds: ['2am-playlist', 'evening-daru-playlist'],
     plays: 5400000,
   },
   {
@@ -2546,7 +2547,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     embedId: 'SIzQ0rfptvs',
     externalUrl: 'https://youtu.be/SIzQ0rfptvs',
     attribution: 'Official YouTube Channel: MRT Hub',
-    playlistIds: ['2am-playlist', 'party-dj-hits'],
+    playlistIds: ['2am-playlist'],
     plays: 4200000,
   },
   {
@@ -2570,7 +2571,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     embedId: 'fzXV2_vm-6g',
     externalUrl: 'https://youtu.be/fzXV2_vm-6g',
     attribution: 'Official YouTube Channel: Jay Guldekar',
-    playlistIds: ['2am-playlist', 'party-dj-hits'],
+    playlistIds: ['2am-playlist'],
     plays: 7100000,
   },
   {
@@ -2594,7 +2595,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     embedId: 'xg2bzwuJl68',
     externalUrl: 'https://youtu.be/xg2bzwuJl68',
     attribution: 'Official YouTube Channel: Tattvaa',
-    playlistIds: ['2am-playlist', 'party-dj-hits'],
+    playlistIds: ['2am-playlist'],
     plays: 6300000,
   },
   {
@@ -2618,7 +2619,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     embedId: 'vvHvNWy6FxQ',
     externalUrl: 'https://youtu.be/vvHvNWy6FxQ',
     attribution: 'Official YouTube Channel: Amit Vedwal',
-    playlistIds: ['2am-playlist', 'party-dj-hits', 'top-50-hindi'],
+    playlistIds: ['2am-playlist', 'top-50-hindi'],
     plays: 5800000,
   },
   {
@@ -2666,7 +2667,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     embedId: '00DvaPstcpo',
     externalUrl: 'https://youtu.be/00DvaPstcpo',
     attribution: 'Official YouTube Channel: Bollywood Chartbusters',
-    playlistIds: ['2am-playlist', 'bus-driver-playlist', 'party-dj-hits'],
+    playlistIds: ['2am-playlist', 'bus-driver-playlist'],
     plays: 8200000,
   },
   // Shadi and Sangeet Playlist — Wedding, Sangeet & DJ Mashups
@@ -3412,7 +3413,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     embedId: 'NplacHfeq9I',
     externalUrl: 'https://youtu.be/NplacHfeq9I?si=9-uHBrig1akf0FyI',
     attribution: 'Official YouTube Channel: Kishore Kumaar Bangla Gaan',
-    playlistIds: ['sab-chalega'],
+    playlistIds: ['90s-hindi-classics', 'sab-chalega'],
     plays: 2650000,
   },
   // 2 AM Playlist Additions
@@ -3508,20 +3509,33 @@ const BAJAO_CATEGORY_META: Record<string, { album: string; genre: string; year: 
   club: { album: 'Club Night', genre: 'Party & DJ Mix', year: 2024 },
   daru: { album: 'Daru Party', genre: 'After Hours Vibe', year: 2023 },
   safarnama: { album: 'Safarnama Highway Mix', genre: 'Road Trip', year: 2022 },
-  '90s': { album: '90s Cassette Gold', genre: '90s Classics', year: 1995 },
+  '90s': { album: 'Retro Classics (90s)', genre: 'Retro Classics', year: 1995 },
   retro: { album: 'Retro Classics', genre: 'Evergreen Retro', year: 1982 },
   '3am': { album: '3 AM Late Night', genre: 'Late Night Soul', year: 2023 },
   bhakti: { album: 'Bhakti, Bhajan & Aarti', genre: 'Devotional & Aarti', year: 2020 },
 };
 
+const BAJAO_LANGUAGE_LABELS: Record<string, string> = {
+  hindi: 'Hindi',
+  punjabi: 'Punjabi',
+  marathi: 'Marathi',
+  english: 'English',
+  haryanvi: 'Haryanvi',
+  bhojpuri: 'Bhojpuri',
+  tamil: 'Tamil',
+  telugu: 'Telugu',
+  malayalam: 'Malayalam',
+  kannada: 'Kannada',
+  bengali: 'Bengali',
+  gujarati: 'Gujarati',
+  rajasthani: 'Rajasthani',
+};
+
+const SOUTH_BAJAO_LANGS = new Set(['tamil', 'telugu', 'malayalam', 'kannada']);
+
 function formatBajaoLanguage(lang: string): string {
-  const key = (lang || 'hindi').toLowerCase();
-  if (key === 'marathi') return 'Marathi';
-  if (key === 'punjabi') return 'Punjabi';
-  if (key === 'english') return 'English';
-  if (key === 'haryanvi') return 'Haryanvi';
-  if (key === 'bhojpuri') return 'Bhojpuri';
-  return 'Hindi';
+  const key = (lang || 'hindi').trim().toLowerCase();
+  return BAJAO_LANGUAGE_LABELS[key] || 'Hindi';
 }
 
 function mapBajaoPlaylistIds(
@@ -3536,6 +3550,12 @@ function mapBajaoPlaylistIds(
   for (const extra of also) {
     const mapped = BAJAO_CATEGORY_TO_PLAYLIST[extra];
     if (mapped) ids.add(mapped);
+  }
+  if (SOUTH_BAJAO_LANGS.has(language)) {
+    ids.add('south-hits');
+  }
+  if (language === 'bhojpuri') {
+    ids.add('bhojpuri-hits');
   }
   if (category !== 'bhakti') {
     ids.add('sab-chalega');
@@ -3561,6 +3581,13 @@ function buildInitialTracks(): Track[] {
     if (t.embedId) {
       byEmbedId.set(t.embedId, t);
     }
+    if (t.fallbackEmbedIds) {
+      for (const fid of t.fallbackEmbedIds) {
+        if (!byEmbedId.has(fid)) {
+          byEmbedId.set(fid, t);
+        }
+      }
+    }
   }
 
   for (const [
@@ -3576,18 +3603,30 @@ function buildInitialTracks(): Track[] {
     banger,
     hookStartSec,
     hookEndSec,
+    energy,
+    musicalKey,
+    heat,
   ] of BAJAO_SONGS) {
     if (!youtubeIds || youtubeIds.length === 0) continue;
     const primaryYtId = youtubeIds[0];
     const fallbackIds = youtubeIds.slice(1);
     const playlistIds = mapBajaoPlaylistIds(category, also, rawLang, banger);
 
-    const existing = byEmbedId.get(primaryYtId);
+    let existing: Track | undefined;
+    for (const yid of youtubeIds) {
+      const match = byEmbedId.get(yid);
+      if (match) {
+        existing = match;
+        break;
+      }
+    }
+
     if (existing) {
       existing.playlistIds = Array.from(new Set([...existing.playlistIds, ...playlistIds]));
-      if (fallbackIds.length > 0) {
+      const allAlternates = youtubeIds.filter((id) => id !== existing?.embedId);
+      if (allAlternates.length > 0) {
         existing.fallbackEmbedIds = Array.from(
-          new Set([...(existing.fallbackEmbedIds || []), ...fallbackIds])
+          new Set([...(existing.fallbackEmbedIds || []), ...allAlternates])
         );
       }
       if (!existing.durationSec && durationSec > 0) {
@@ -3602,6 +3641,15 @@ function buildInitialTracks(): Track[] {
       ) {
         existing.hookStartSec = hookStartSec;
         existing.hookEndSec = hookEndSec;
+      }
+      if (!existing.heat && Array.isArray(heat) && heat.length > 0) {
+        existing.heat = heat;
+      }
+      if (existing.energy === undefined && Number.isFinite(energy)) {
+        existing.energy = energy;
+      }
+      if (!existing.musicalKey && musicalKey) {
+        existing.musicalKey = musicalKey;
       }
       continue;
     }
@@ -3633,11 +3681,22 @@ function buildInitialTracks(): Track[] {
       ...(Number.isFinite(hookStartSec) && Number.isFinite(hookEndSec)
         ? { hookStartSec, hookEndSec }
         : {}),
+      ...(Array.isArray(heat) && heat.length > 0 ? { heat } : {}),
+      ...(Number.isFinite(energy) ? { energy } : {}),
+      ...(musicalKey ? { musicalKey } : {}),
       plays: banger ? 3250000 : 1450000,
     };
 
     tracks.push(track);
-    byEmbedId.set(primaryYtId, track);
+    for (const yid of youtubeIds) {
+      if (!byEmbedId.has(yid)) {
+        byEmbedId.set(yid, track);
+      }
+    }
+  }
+
+  for (const track of tracks) {
+    track.playlistIds = refineTrackPlaylistIds(track);
   }
 
   return tracks;

@@ -1,6 +1,7 @@
 import {
   Bell,
   Check,
+  Disc3,
   Info,
   Mic,
   Moon,
@@ -10,6 +11,13 @@ import {
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import groovyAvatarUrl from '../assets/images/groovy_girl_avatar_1795443866890.jpg';
+import {
+  CROSSFADE_MAX_SEC,
+  CROSSFADE_MIN_SEC,
+  DJ_CROSSFADE_MAX_SEC,
+  DJ_CROSSFADE_MIN_SEC,
+  type CrossfadeSettings,
+} from '../utils/hookTiming';
 
 export type AppTheme = 'dark' | 'light';
 
@@ -23,8 +31,10 @@ interface SettingsModalProps {
   open: boolean;
   theme: AppTheme;
   notifications: NotificationSettings;
+  crossfadeSettings: CrossfadeSettings;
   onChangeTheme: (theme: AppTheme) => void;
   onChangeNotifications: (next: NotificationSettings) => void;
+  onChangeCrossfadeSettings: (next: CrossfadeSettings) => void;
   onClose: () => void;
 }
 
@@ -32,8 +42,10 @@ export function SettingsModal({
   open,
   theme,
   notifications,
+  crossfadeSettings,
   onChangeTheme,
   onChangeNotifications,
+  onChangeCrossfadeSettings,
   onClose,
 }: SettingsModalProps) {
   if (!open || typeof document === 'undefined') return null;
@@ -215,7 +227,177 @@ export function SettingsModal({
             </div>
           </section>
 
-          {/* 2. Notifications Section */}
+          {/* 2. Automatic Crossfade & DJ Mode Section */}
+          <section className="space-y-2.5">
+            <div className="flex items-center justify-between">
+              <h3
+                className={`text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5 ${
+                  isLight ? 'text-slate-500' : 'text-slate-400'
+                }`}
+              >
+                <Disc3 className="w-3.5 h-3.5 text-violet-400" />
+                Crossfade &amp; DJ Mode
+              </h3>
+              <span
+                className={`text-[11px] font-mono-tabular font-medium ${
+                  isLight ? 'text-violet-600' : 'text-violet-300'
+                }`}
+              >
+                {crossfadeSettings.djMode
+                  ? `DJ ${crossfadeSettings.djCrossfadeSec}s`
+                  : `${crossfadeSettings.crossfadeSec}s Auto`}
+              </span>
+            </div>
+
+            <div
+              className={`rounded-2xl border p-3.5 space-y-3.5 ${
+                isLight
+                  ? 'bg-slate-50 border-slate-200'
+                  : 'bg-white/[0.03] border-white/[0.08]'
+              }`}
+            >
+              {/* DJ Mode Extended Blend Switch */}
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p
+                    className={`text-xs font-semibold ${
+                      isLight ? 'text-slate-900' : 'text-white'
+                    }`}
+                  >
+                    DJ Mode (Extended Blend)
+                  </p>
+                  <p
+                    className={`text-[11px] mt-0.5 ${
+                      isLight ? 'text-slate-500' : 'text-slate-400'
+                    }`}
+                  >
+                    Starts the next song or hook {DJ_CROSSFADE_MIN_SEC}–{DJ_CROSSFADE_MAX_SEC}s early before the current track or hook finishes
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={crossfadeSettings.djMode}
+                  aria-label="DJ Mode"
+                  onClick={() =>
+                    onChangeCrossfadeSettings({
+                      ...crossfadeSettings,
+                      djMode: !crossfadeSettings.djMode,
+                    })
+                  }
+                  className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full p-0.5 transition-colors duration-200 ${
+                    crossfadeSettings.djMode
+                      ? 'bg-gradient-to-r from-violet-600 to-blue-500'
+                      : isLight
+                        ? 'bg-slate-300'
+                        : 'bg-white/[0.15]'
+                  }`}
+                >
+                  <span
+                    className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                      crossfadeSettings.djMode ? 'translate-x-4' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* Duration Slider */}
+              <div
+                className={`space-y-2 pt-2.5 border-t ${
+                  isLight ? 'border-slate-200/80' : 'border-white/[0.06]'
+                }`}
+              >
+                <div className="flex items-center justify-between text-xs">
+                  <span className={isLight ? 'text-slate-700 font-medium' : 'text-slate-200 font-medium'}>
+                    {crossfadeSettings.djMode
+                      ? 'DJ Mode Blend Duration'
+                      : 'Automatic Crossfade Duration'}
+                  </span>
+                  <span className="font-mono-tabular font-semibold text-violet-400">
+                    {crossfadeSettings.djMode
+                      ? `${crossfadeSettings.djCrossfadeSec}s`
+                      : `${crossfadeSettings.crossfadeSec}s`}
+                  </span>
+                </div>
+
+                {crossfadeSettings.djMode ? (
+                  <input
+                    type="range"
+                    aria-label="DJ Mode crossfade duration in seconds"
+                    min={DJ_CROSSFADE_MIN_SEC}
+                    max={DJ_CROSSFADE_MAX_SEC}
+                    step={1}
+                    value={crossfadeSettings.djCrossfadeSec}
+                    onChange={(e) =>
+                      onChangeCrossfadeSettings({
+                        ...crossfadeSettings,
+                        djCrossfadeSec: Number(e.target.value),
+                      })
+                    }
+                    className="gg-range w-full"
+                  />
+                ) : (
+                  <input
+                    type="range"
+                    aria-label="Automatic crossfade duration in seconds"
+                    min={CROSSFADE_MIN_SEC}
+                    max={CROSSFADE_MAX_SEC}
+                    step={1}
+                    value={crossfadeSettings.crossfadeSec}
+                    onChange={(e) =>
+                      onChangeCrossfadeSettings({
+                        ...crossfadeSettings,
+                        crossfadeSec: Number(e.target.value),
+                      })
+                    }
+                    className="gg-range w-full"
+                  />
+                )}
+
+                <div className="flex items-center justify-between gap-1.5">
+                  {(crossfadeSettings.djMode ? [10, 12, 14, 16] : [4, 6, 8, 12]).map(
+                    (sec) => {
+                      const active = crossfadeSettings.djMode
+                        ? crossfadeSettings.djCrossfadeSec === sec
+                        : crossfadeSettings.crossfadeSec === sec;
+                      return (
+                        <button
+                          key={sec}
+                          type="button"
+                          onClick={() =>
+                            onChangeCrossfadeSettings(
+                              crossfadeSettings.djMode
+                                ? { ...crossfadeSettings, djCrossfadeSec: sec }
+                                : { ...crossfadeSettings, crossfadeSec: sec }
+                            )
+                          }
+                          className={`flex-1 py-1 rounded-lg text-[11px] font-mono-tabular font-medium border transition-colors ${
+                            active
+                              ? 'border-violet-500/70 bg-violet-500/20 text-violet-200'
+                              : isLight
+                                ? 'border-slate-200 bg-white text-slate-600 hover:border-violet-300'
+                                : 'border-white/[0.08] bg-white/[0.03] text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          {sec}s{!crossfadeSettings.djMode && sec === 8 ? ' · Default' : ''}
+                        </button>
+                      );
+                    }
+                  )}
+                </div>
+
+                <p
+                  className={`text-[11px] leading-relaxed ${
+                    isLight ? 'text-slate-500' : 'text-slate-400'
+                  }`}
+                >
+                  Early Crossfade begins blending the next song or hook before the current one finishes. Next, Previous, and direct song picks still switch immediately (~240ms anti-click fade).
+                </p>
+              </div>
+            </div>
+          </section>
+
+          {/* 3. Notifications Section */}
           <section className="space-y-2.5">
             <h3
               className={`text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5 ${

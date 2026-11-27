@@ -6,6 +6,7 @@ import type {
   SearchFilters,
   Track,
 } from '../../types/music';
+import { refineTrackPlaylistIds, sequencePlaylistBajaoStyle } from '../../utils/playlistRefinement';
 import { AudiusOpenProvider } from './audiusProvider';
 import { JamendoCcProvider } from './jamendoProvider';
 import { YoutubeDataProvider } from './youtubeProvider';
@@ -100,7 +101,8 @@ class CatalogService {
   } {
     const found = this.getPlaylists().find((p) => p.id === playlistId || p.slug === playlistId);
     if (!found) return { playlist: null, tracks: [] };
-    const tracks = this.tracks.filter((t) => t.playlistIds.includes(found.id));
+    const matched = this.tracks.filter((t) => t.playlistIds.includes(found.id));
+    const tracks = sequencePlaylistBajaoStyle(matched, { seedKey: found.id });
     return { playlist: found, tracks };
   }
 
@@ -198,6 +200,7 @@ class CatalogService {
       isUserAdded: true,
     };
 
+    newTrack.playlistIds = refineTrackPlaylistIds(newTrack);
     this.tracks.unshift(newTrack);
     return newTrack;
   }

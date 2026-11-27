@@ -3,6 +3,7 @@ import {
   ChevronDown,
   ChevronUp,
   Clock,
+  Disc3,
   ExternalLink,
   Heart,
   History,
@@ -42,13 +43,16 @@ import {
 import { formatDuration } from '../utils/format';
 import {
   CROSSFADE_TICK_MS,
-  FULL_SONG_CUTOFF_LEAD_SEC,
-  getBpmCrossfadeMs,
+  DEFAULT_CROSSFADE_SETTINGS,
+  getAutoCrossfadeMs,
   getDefaultHookWindow,
   getPrerollLeadSec,
   isLiteConnection,
   loadCustomHooks,
+  MANUAL_SWITCH_FADE_MS,
+  MIN_HOOK_SPAN_SEC,
   saveCustomHooksMap,
+  type CrossfadeSettings,
   type HookRange,
 } from '../utils/hookTiming';
 import { ArtworkImage } from './ArtworkImage';
@@ -62,18 +66,23 @@ const PREROLL_MIN_REMAINING_SEC = 0.4;
 const PREROLL_DRIFT_SNAP_SEC = 0.2;
 const CROSSFADE_ATTEMPT_DEBOUNCE_MS = 3500;
 const YT_BUFFER_WATCHDOG_MS = 9000;
-type YtSlotMode = 'idle' | 'active' | 'precue' | 'preroll' | 'crossfade';
+const YT_UNSKIPPABLE_AD_BYPASS_MS = 4500;
+const MAX_CONSECUTIVE_AD_SKIPS = 3;
+type YtSlotMode = 'idle' | 'active' | 'precue' | 'preroll' | 'crossfade' | 'fadeout';
 
 function isLikelyYtAdDuration(
   reportedDur: number,
   track: Track | null | undefined
 ): boolean {
   if (!track || !Number.isFinite(reportedDur) || reportedDur <= 0) return false;
+  if (track.durationSec >= 90) {
+    return reportedDur < Math.min(65, track.durationSec * 0.45);
+  }
   if (track.durationSec >= 45) {
     return reportedDur < Math.min(35, track.durationSec * 0.45);
   }
-  // Tracks without pre-known duration (durationSec === 0): YouTube pre-roll ads are <= 30s
-  return reportedDur <= 30.5;
+  // Tracks without pre-known duration (durationSec === 0): YouTube pre-roll ads are <= 45s
+  return reportedDur <= 45;
 }
 
 interface YTPlayerInstance {
@@ -209,10 +218,12 @@ interface PlayerBarProps {
   volume?: number;
   muted?: boolean;
   hookMode?: boolean;
+  crossfadeSettings?: CrossfadeSettings;
   audioDucking?: boolean;
   onVolumeChange?: (volume01: number) => void;
   onMutedChange?: (muted: boolean) => void;
   onHookModeChange?: (hookMode: boolean) => void;
+  onChangeCrossfadeSettings?: (next: CrossfadeSettings) => void;
 }
 
 export function PlayerBar({
@@ -244,10 +255,12 @@ export function PlayerBar({
   volume: controlledVolume,
   muted: controlledMuted,
   hookMode: controlledHookMode,
+  crossfadeSettings = DEFAULT_CROSSFADE_SETTINGS,
   audioDucking = false,
   onVolumeChange,
   onMutedChange,
   onHookModeChange,
+  onChangeCrossfadeSettings,
 }: PlayerBarProps) {
   // Dual HTML5 Audio Decks + Background Audio-Focus Keep-Alive Deck
   const deck0Ref = useRef<HTMLAudioElement | null>(null);
@@ -283,8 +296,14 @@ export function PlayerBar({
   const ytWaitCancelRef = useRef<(() => void) | null>(null);
   const ytBufferingSinceRef = useRef<number | null>(null);
   const ytAdActiveRef = useRef<[boolean, boolean]>([false, false]);
+  const ytAdStartedAtRef = useRef<[number, number]>([0, 0]);
   const ytAdRetriedRef = useRef<[boolean, boolean]>([false, false]);
+  const ytAdReloadedRef = useRef<[boolean, boolean]>([false, false]);
+  const ytExpectedStartSecRef = useRef<[number, number]>([0, 0]);
+  const ytOffsetVerifiedRef = useRef<[boolean, boolean]>([false, false]);
+  const ytOffsetSeekTriedAtRef = useRef<[number, number]>([0, 0]);
   const ytBlockedRetryDoneRef = useRef<[boolean, boolean]>([false, false]);
+  const consecutiveAdSkipsRef = useRef(0);
   const wakeLockRef = useRef<{ release: () => Promise<void> } | null>(null);
 
   // Center Studio Console Stage Slot measurement (keeps YT iframe locked inside Center Screen with 0 teardown)
@@ -297,6 +316,12 @@ export function PlayerBar({
 
   const transitionRef = useRef<TransitionSession | null>(null);
   const transitionLockFromIdRef = useRef<string>('');
+  const manualSwitchGenRef = useRef(0);
+  const manualFadeStopRef = useRef<(() => void) | null>(null);
+  const manualFadeOutAudioIdxRef = useRef<0 | 1 | null>(null);
+  const manualFadeOutYtSlotRef = useRef<0 | 1 | null>(null);
+  const autoCompletedTrackIdRef = useRef<string>('');
+  const prevRenderedTrackRef = useRef<Track | null>(null);
   const consecutiveYtErrorsRef = useRef(0);
   const userPausedRef = useRef(false);
   const prevIsPlayingRef = useRef(isPlaying);
@@ -348,6 +373,7 @@ export function PlayerBar({
   const [audioError, setAudioError] = useState<string | null>(null);
   const [ytDockMinimized, setYtDockMinimized] = useState(true);
   const [ytBuffering, setYtBuffering] = useState(false);
+  const [ytAdActiveState, setYtAdActiveState] = useState(false);
   const [ytSlotTracks, setYtSlotTracks] = useState<[Track | null, Track | null]>([
     null,
     null,
@@ -378,6 +404,8 @@ export function PlayerBar({
   effectiveGainRef.current = effectiveMasterGain;
   const hookModeRef = useRef(hookMode);
   hookModeRef.current = hookMode;
+  const crossfadeSettingsRef = useRef(crossfadeSettings);
+  crossfadeSettingsRef.current = crossfadeSettings;
   const customHooksRef = useRef(customHooks);
   customHooksRef.current = customHooks;
   const getNextTrackRef = useRef(getNextTrack);
@@ -423,7 +451,11 @@ export function PlayerBar({
       if (!track) return { startSec: 20, endSec: 80, isCustom: false };
       const resolvedDur = durSec || track.durationSec || 218;
       const custom = customHooksRef.current[track.id];
-      if (custom && custom.endSec > custom.startSec + 5 && custom.endSec <= resolvedDur + 1) {
+      if (
+        custom &&
+        custom.endSec - custom.startSec >= MIN_HOOK_SPAN_SEC &&
+        custom.endSec <= resolvedDur + 1
+      ) {
         return {
           startSec: Math.max(0, custom.startSec),
           endSec: Math.min(resolvedDur, custom.endSec),
@@ -436,12 +468,47 @@ export function PlayerBar({
     []
   );
 
+  // Hook Mode starts at each song's curated/derived entry_sec; Full Song Mode starts from 0:00 while keeping crossfade
+  const getStartSecForTrack = useCallback(
+    (track: Track | null, durSec?: number): number => {
+      if (!track) return 0;
+      if (hookModeRef.current) {
+        return getHookForTrack(track, durSec).startSec;
+      }
+      return 0;
+    },
+    [getHookForTrack]
+  );
+
+  // Early Crossfade trigger: starts `fadeSec` BEFORE current hook finishes (or `fadeSec` before end in Full Song Mode)
+  const getAutoExitTargetSec = useCallback(
+    (track: Track, durSec: number): number => {
+      const safeDur = Math.max(8, durSec || track.durationSec || 218);
+      const next = getNextTrackRef.current(track.id);
+      const fadeSec =
+        getAutoCrossfadeMs(crossfadeSettingsRef.current, next?.bpm ?? track.bpm) / 1000;
+      if (hookModeRef.current) {
+        const hookWin = getHookForTrack(track, safeDur);
+        const hookSpan = Math.max(MIN_HOOK_SPAN_SEC, hookWin.endSec - hookWin.startSec);
+        // Start next song's hook BEFORE current hook finishes (default 8s early; 10-16s early in DJ Mode)
+        const minSoloSec = Math.min(3, Math.max(1.5, hookSpan * 0.25));
+        const minHookEntryFloor = hookWin.startSec + minSoloSec;
+        const earlyTriggerSec = hookWin.endSec - fadeSec;
+        const maxSafePhysicalCap = safeDur - Math.min(safeDur * 0.45, fadeSec + 0.8);
+        return Math.min(maxSafePhysicalCap, Math.max(minHookEntryFloor, earlyTriggerSec));
+      }
+      const leadSec = Math.min(Math.max(4, safeDur * 0.45), fadeSec + 1.0);
+      return Math.max(4, safeDur - leadSec);
+    },
+    [getHookForTrack]
+  );
+
   const activeHookWindow = useMemo(() => {
     if (!currentTrack) return { startSec: 20, endSec: 80, isCustom: false };
     const custom = customHooks[currentTrack.id];
     if (
       custom &&
-      custom.endSec > custom.startSec + 5 &&
+      custom.endSec - custom.startSec >= MIN_HOOK_SPAN_SEC &&
       custom.endSec <= effectiveDuration + 1
     ) {
       return {
@@ -723,6 +790,44 @@ export function PlayerBar({
     [getDeck]
   );
 
+  const stopManualFade = useCallback(() => {
+    if (manualFadeStopRef.current) {
+      manualFadeStopRef.current();
+      manualFadeStopRef.current = null;
+    }
+  }, []);
+
+  const hardSilenceYtSlot = useCallback((slotIdx: 0 | 1) => {
+    ytDeckModeRef.current[slotIdx] = 'idle';
+    ytStartZeroRef.current[slotIdx] = false;
+    ytPreRolledRef.current[slotIdx] = false;
+    ytPrerollStartSecRef.current[slotIdx] = 0;
+    ytAwaitingPlayRef.current[slotIdx] = false;
+    ytAwaitingPlaySinceRef.current[slotIdx] = 0;
+    ytAdActiveRef.current[slotIdx] = false;
+    ytAdStartedAtRef.current[slotIdx] = 0;
+    ytAdRetriedRef.current[slotIdx] = false;
+    ytAdReloadedRef.current[slotIdx] = false;
+    ytExpectedStartSecRef.current[slotIdx] = 0;
+    ytOffsetVerifiedRef.current[slotIdx] = false;
+    ytOffsetSeekTriedAtRef.current[slotIdx] = 0;
+    ytBlockedRetryDoneRef.current[slotIdx] = false;
+    ytDesiredTrackRef.current[slotIdx] = null;
+    ytDeckTrackIdRef.current[slotIdx] = '';
+
+    const p = ytPlayersRef.current[slotIdx];
+    if (p && ytReadyRef.current[slotIdx]) {
+      try {
+        p.mute();
+        p.setVolume(0);
+        p.pauseVideo();
+        p.stopVideo?.();
+      } catch {
+        // ignore transient errors
+      }
+    }
+  }, []);
+
   const setYtDeckVolume = useCallback((idx: 0 | 1, gain01: number) => {
     const player = ytPlayersRef.current[idx];
     if (!player || !ytReadyRef.current[idx]) return;
@@ -759,25 +864,31 @@ export function PlayerBar({
       const player = ytPlayersRef.current[slotIdx];
       if (!player || !ytReadyRef.current[slotIdx] || !backupVideoId) return false;
 
-      const hookStart = hookModeRef.current
-        ? getHookForTrack(desiredTrack, desiredTrack.durationSec || 218).startSec
-        : 0;
+      const entryStart = getStartSecForTrack(
+        desiredTrack,
+        desiredTrack.durationSec || 218
+      );
       try {
         ytAdActiveRef.current[slotIdx] = false;
+        ytAdStartedAtRef.current[slotIdx] = 0;
+        ytExpectedStartSecRef.current[slotIdx] = entryStart;
+        ytOffsetVerifiedRef.current[slotIdx] = false;
+        ytOffsetSeekTriedAtRef.current[slotIdx] = 0;
         ytBlockedRetryDoneRef.current[slotIdx] = false;
         if (!isStandbySlot) {
+          setYtAdActiveState(false);
           setYtBuffering(true);
           ytBufferingSinceRef.current = Date.now();
         }
         if (ytDeckModeRef.current[slotIdx] === 'precue') {
           player.cueVideoById?.({
             videoId: backupVideoId,
-            startSeconds: hookStart,
+            startSeconds: entryStart,
           });
         } else {
           player.loadVideoById?.({
             videoId: backupVideoId,
-            startSeconds: hookStart,
+            startSeconds: entryStart,
           });
           if (isPlayingRef.current || ytStartZeroRef.current[slotIdx]) {
             player.playVideo();
@@ -788,7 +899,7 @@ export function PlayerBar({
         return false;
       }
     },
-    [getHookForTrack]
+    [getStartSecForTrack]
   );
 
   const cancelTransition = useCallback(
@@ -880,8 +991,14 @@ export function PlayerBar({
       ytPrerollStartSecRef.current = [0, 0];
       ytDeckModeRef.current = ['idle', 'idle'];
       ytAdActiveRef.current = [false, false];
+      ytAdStartedAtRef.current = [0, 0];
       ytAdRetriedRef.current = [false, false];
+      ytAdReloadedRef.current = [false, false];
+      ytExpectedStartSecRef.current = [0, 0];
+      ytOffsetVerifiedRef.current = [false, false];
+      ytOffsetSeekTriedAtRef.current = [0, 0];
       ytBlockedRetryDoneRef.current = [false, false];
+      setYtAdActiveState(false);
       setYtSlotTracks([null, null]);
     } else {
       const inYt = session.incomingYtDeckIdx;
@@ -898,23 +1015,25 @@ export function PlayerBar({
         try {
           const cur = inPlayer.getCurrentTime();
           const dur = inPlayer.getDuration();
-          const incomingHasAd = isLikelyYtAdDuration(dur, session.toTrack);
+          const incomingHasAd =
+            ytAdActiveRef.current[inYt] || isLikelyYtAdDuration(dur, session.toTrack);
           ytAdActiveRef.current[inYt] = incomingHasAd;
+          setYtAdActiveState(incomingHasAd);
           if (incomingHasAd) {
+            if (!ytAdStartedAtRef.current[inYt]) {
+              ytAdStartedAtRef.current[inYt] = Date.now();
+            }
             inPlayer.mute();
             inPlayer.setVolume(0);
           } else {
-            if (hookModeRef.current) {
-              const hookStart = getHookForTrack(
-                session.toTrack,
-                Number.isFinite(dur) && dur > 0 ? dur : session.toTrack.durationSec || 218
-              ).startSec;
-              if (Number.isFinite(cur) && cur < hookStart - 1.5) {
-                inPlayer.seekTo(hookStart, true);
-                setCurrentTime(hookStart);
-              } else if (Number.isFinite(cur)) {
-                setCurrentTime(cur);
-              }
+            ytAdStartedAtRef.current[inYt] = 0;
+            const resolvedDur =
+              Number.isFinite(dur) && dur > 0 ? dur : session.toTrack.durationSec || 218;
+            const entryStart = getStartSecForTrack(session.toTrack, resolvedDur);
+            ytExpectedStartSecRef.current[inYt] = entryStart;
+            if (entryStart > 0 && Number.isFinite(cur) && cur < entryStart - 1.5) {
+              inPlayer.seekTo(entryStart, true);
+              setCurrentTime(entryStart);
             } else if (Number.isFinite(cur)) {
               setCurrentTime(cur);
             }
@@ -936,7 +1055,12 @@ export function PlayerBar({
         ytPrerollStartSecRef.current[outYt] = 0;
         ytDeckModeRef.current[outYt] = 'idle';
         ytAdActiveRef.current[outYt] = false;
+        ytAdStartedAtRef.current[outYt] = 0;
         ytAdRetriedRef.current[outYt] = false;
+        ytAdReloadedRef.current[outYt] = false;
+        ytExpectedStartSecRef.current[outYt] = 0;
+        ytOffsetVerifiedRef.current[outYt] = false;
+        ytOffsetSeekTriedAtRef.current[outYt] = 0;
         ytBlockedRetryDoneRef.current[outYt] = false;
         setYtSlotTracks((prev) => {
           const next: [Track | null, Track | null] = [...prev] as [
@@ -957,8 +1081,9 @@ export function PlayerBar({
     audioPreRolledRef.current = [false, false];
     transitionLockFromIdRef.current = '';
     lastCrossfadeAttemptMsRef.current = 0;
+    autoCompletedTrackIdRef.current = session.toTrack.id;
     onCrossfadeCompleteRef.current(session.toTrack);
-  }, [clearDeck, getDeck, getHookForTrack, setYtDeckVolume]);
+  }, [clearDeck, getDeck, getStartSecForTrack, setYtDeckVolume]);
 
   const applyFadeVolumes = useCallback(
     (session: TransitionSession, progress: number) => {
@@ -1128,14 +1253,15 @@ export function PlayerBar({
         return;
       }
 
-      const hookStart = hookModeRef.current
-        ? getHookForTrack(next, next.durationSec || 218).startSec
-        : 0;
+      const entryStart = getStartSecForTrack(next, next.durationSec || 218);
 
       ytDeckModeRef.current[standbySlot] = 'precue';
       ytPreRolledRef.current[standbySlot] = false;
       ytStartZeroRef.current[standbySlot] = true;
-      ytPrerollStartSecRef.current[standbySlot] = hookStart;
+      ytPrerollStartSecRef.current[standbySlot] = entryStart;
+      ytExpectedStartSecRef.current[standbySlot] = entryStart;
+      ytOffsetVerifiedRef.current[standbySlot] = false;
+      ytOffsetSeekTriedAtRef.current[standbySlot] = 0;
 
       const standbyPlayer = ytPlayersRef.current[standbySlot];
       if (
@@ -1148,7 +1274,7 @@ export function PlayerBar({
           standbyPlayer.setVolume(0);
           standbyPlayer.cueVideoById?.({
             videoId: next.embedId,
-            startSeconds: hookStart,
+            startSeconds: entryStart,
           });
         } catch {
           // ignore
@@ -1166,7 +1292,7 @@ export function PlayerBar({
         return updated;
       });
     },
-    [clearYtStandbySlot, getHookForTrack]
+    [clearYtStandbySlot, getStartSecForTrack]
   );
 
   const abortStandbyPreroll = useCallback(() => {
@@ -1178,16 +1304,18 @@ export function PlayerBar({
         const standbyTrack = ytDesiredTrackRef.current[slotIdx];
         const standbyPlayer = ytPlayersRef.current[slotIdx];
         if (standbyTrack?.embedId && standbyPlayer && ytReadyRef.current[slotIdx]) {
-          const hookStart = hookModeRef.current
-            ? getHookForTrack(standbyTrack, standbyTrack.durationSec || 218).startSec
-            : 0;
+          const entryStart = getStartSecForTrack(
+            standbyTrack,
+            standbyTrack.durationSec || 218
+          );
+          ytExpectedStartSecRef.current[slotIdx] = entryStart;
           try {
             standbyPlayer.pauseVideo();
             standbyPlayer.mute();
             standbyPlayer.setVolume(0);
             standbyPlayer.cueVideoById?.({
               videoId: standbyTrack.embedId,
-              startSeconds: hookStart,
+              startSeconds: entryStart,
             });
           } catch {
             // ignore
@@ -1206,7 +1334,7 @@ export function PlayerBar({
         }
       }
     });
-  }, [clearExitTimer, getDeck, getHookForTrack]);
+  }, [clearExitTimer, getDeck, getStartSecForTrack]);
 
   const syncYtPrerolledDrift = useCallback(
     (slotIdx: 0 | 1, targetEntrySec: number) => {
@@ -1220,10 +1348,12 @@ export function PlayerBar({
         const cur = player.getCurrentTime();
         if (!Number.isFinite(cur)) return;
         const drift = targetEntrySec - cur;
-        ytPrerollLatencyRef.current = Math.min(
-          1.5,
-          Math.max(0, ytPrerollLatencyRef.current + 0.6 * drift)
-        );
+        if (targetEntrySec > 3) {
+          ytPrerollLatencyRef.current = Math.min(
+            1.5,
+            Math.max(0, ytPrerollLatencyRef.current + 0.6 * drift)
+          );
+        }
         if (Math.abs(drift) > PREROLL_DRIFT_SNAP_SEC) {
           player.seekTo(targetEntrySec, true);
         }
@@ -1284,26 +1414,30 @@ export function PlayerBar({
   );
 
   const triggerBajaoCrossfade = useCallback(
-    (sourceKind: 'audio' | 'youtube') => {
+    (sourceKind: 'audio' | 'youtube', forceInstant = false): boolean => {
       const track = currentTrackRef.current;
-      if (!track || !isPlayingRef.current) return;
-      if (transitionRef.current) return;
-      if (transitionLockFromIdRef.current === track.id) return;
+      if (!track || !isPlayingRef.current) return false;
+      if (transitionRef.current) return false;
+      if (!forceInstant && transitionLockFromIdRef.current === track.id) return false;
 
       const nowMs = Date.now();
-      if (nowMs - lastCrossfadeAttemptMsRef.current < CROSSFADE_ATTEMPT_DEBOUNCE_MS) {
-        return;
+      if (
+        !forceInstant &&
+        nowMs - lastCrossfadeAttemptMsRef.current < CROSSFADE_ATTEMPT_DEBOUNCE_MS
+      ) {
+        return false;
       }
-      lastCrossfadeAttemptMsRef.current = nowMs;
-      clearExitTimer();
 
       const next = getNextTrackRef.current(track.id);
-      if (!next || next.id === track.id) return;
+      if (!next || next.id === track.id) return false;
 
       const nextIsYt =
         next.playbackRights === 'embed-only' && Boolean(next.embedId);
       const incomingKind: 'audio' | 'youtube' = nextIsYt ? 'youtube' : 'audio';
-      if (incomingKind === 'audio' && !next.streamUrl) return;
+      if (incomingKind === 'audio' && !next.streamUrl) return false;
+
+      lastCrossfadeAttemptMsRef.current = nowMs;
+      clearExitTimer();
 
       const outgoingAudioDeckIdx = activeDeckIdxRef.current;
       const incomingAudioDeckIdx: 0 | 1 = outgoingAudioDeckIdx === 0 ? 1 : 0;
@@ -1311,13 +1445,63 @@ export function PlayerBar({
       const incomingYtDeckIdx: 0 | 1 =
         sourceKind === 'youtube' ? (outgoingYtDeckIdx === 0 ? 1 : 0) : 0;
 
-      // BPM-matched equal-power crossfade duration (1 musical bar, 1200ms..2400ms, default 1500ms)
-      const durationMs = getBpmCrossfadeMs(next.bpm);
+      // Configured Early Crossfade (8s default; 10-16s in DJ Mode) with BPM phrase alignment
+      let durationMs = getAutoCrossfadeMs(crossfadeSettingsRef.current, next.bpm);
+      let outgoingEndedAlready = false;
+      try {
+        if (sourceKind === 'audio') {
+          const outDeck = getDeck(outgoingAudioDeckIdx);
+          if (outDeck) {
+            if (outDeck.ended) {
+              outgoingEndedAlready = true;
+            } else if (Number.isFinite(outDeck.duration) && outDeck.duration > 4) {
+              const curSec = outDeck.currentTime || 0;
+              const runwayMs = (outDeck.duration - curSec - 0.3) * 1000;
+              if (runwayMs > 500) {
+                durationMs = Math.min(durationMs, Math.max(MANUAL_SWITCH_FADE_MS, Math.round(runwayMs)));
+              }
+              if (hookModeRef.current) {
+                const hookEnd = getHookForTrack(track, outDeck.duration).endSec;
+                const hookRemainingMs = (hookEnd - curSec) * 1000;
+                if (hookRemainingMs >= 1500 && hookRemainingMs < durationMs) {
+                  durationMs = Math.max(MANUAL_SWITCH_FADE_MS, Math.round(hookRemainingMs));
+                }
+              }
+            }
+          }
+        } else {
+          const outYt = ytPlayersRef.current[outgoingYtDeckIdx];
+          if (outYt && ytReadyRef.current[outgoingYtDeckIdx]) {
+            if (outYt.getPlayerState?.() === 0) {
+              outgoingEndedAlready = true;
+            } else {
+              const ytDur = outYt.getDuration?.() || track.durationSec || 218;
+              const ytCur = outYt.getCurrentTime?.() || 0;
+              if (Number.isFinite(ytDur) && ytDur > 4) {
+                const runwayMs = (ytDur - ytCur - 0.3) * 1000;
+                if (runwayMs > 500) {
+                  durationMs = Math.min(durationMs, Math.max(MANUAL_SWITCH_FADE_MS, Math.round(runwayMs)));
+                }
+                if (hookModeRef.current) {
+                  const hookEnd = getHookForTrack(track, ytDur).endSec;
+                  const hookRemainingMs = (hookEnd - ytCur) * 1000;
+                  if (hookRemainingMs >= 1500 && hookRemainingMs < durationMs) {
+                    durationMs = Math.max(MANUAL_SWITCH_FADE_MS, Math.round(hookRemainingMs));
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch {
+        // ignore transient reads
+      }
+      if (outgoingEndedAlready) {
+        durationMs = MANUAL_SWITCH_FADE_MS;
+      }
       transitionLockFromIdRef.current = track.id;
 
-      const nextStartSec = hookModeRef.current
-        ? getHookForTrack(next, next.durationSec || 218).startSec
-        : 0;
+      const nextStartSec = getStartSecForTrack(next, next.durationSec || 218);
 
       const beginFadeInterval = () => {
         if (
@@ -1354,7 +1538,7 @@ export function PlayerBar({
         const inDeck = getDeck(incomingAudioDeckIdx);
         if (!inDeck || !next.streamUrl) {
           transitionLockFromIdRef.current = '';
-          return;
+          return false;
         }
 
         const resolvedNextUrl = new URL(next.streamUrl, window.location.origin).href;
@@ -1398,7 +1582,7 @@ export function PlayerBar({
           }
         });
         beginFadeInterval();
-        return;
+        return true;
       }
 
       // Incoming YouTube deck
@@ -1413,6 +1597,9 @@ export function PlayerBar({
 
       ytDeckModeRef.current[incomingYtDeckIdx] = 'crossfade';
       ytStartZeroRef.current[incomingYtDeckIdx] = true;
+      ytExpectedStartSecRef.current[incomingYtDeckIdx] = nextStartSec;
+      ytOffsetVerifiedRef.current[incomingYtDeckIdx] = false;
+      ytOffsetSeekTriedAtRef.current[incomingYtDeckIdx] = 0;
       if (sourceKind === 'audio') {
         activeYtDeckIdxRef.current = incomingYtDeckIdx;
         setActiveYtDeckIdx(incomingYtDeckIdx);
@@ -1422,8 +1609,15 @@ export function PlayerBar({
         ytPreRolledRef.current[incomingYtDeckIdx] = false;
         syncYtPrerolledDrift(incomingYtDeckIdx, nextStartSec);
         try {
-          if (mutedRef.current || volumeRef.current === 0) {
+          if (
+            ytAdActiveRef.current[incomingYtDeckIdx] ||
+            mutedRef.current ||
+            volumeRef.current === 0
+          ) {
             standbyPlayer.mute();
+            if (ytAdActiveRef.current[incomingYtDeckIdx]) {
+              standbyPlayer.setVolume(0);
+            }
           } else {
             standbyPlayer.unMute();
             standbyPlayer.setVolume(0);
@@ -1440,7 +1634,7 @@ export function PlayerBar({
           return updated;
         });
         beginFadeInterval();
-        return;
+        return true;
       }
 
       // Cold-start or cue-only standby deck: prime at volume 0 and wait up to 1.5s for PLAYING before fading
@@ -1492,7 +1686,6 @@ export function PlayerBar({
           return;
         }
         if (!isReady) {
-          // Proceed with fade/handoff cleanly if standby is still buffering
           if (ytPlayersRef.current[incomingYtDeckIdx]?.getPlayerState?.() !== 1) {
             try {
               ytPlayersRef.current[incomingYtDeckIdx]?.playVideo();
@@ -1503,12 +1696,14 @@ export function PlayerBar({
         }
         beginFadeInterval();
       });
+      return true;
     },
     [
       cancelTransition,
       clearExitTimer,
       getDeck,
       getHookForTrack,
+      getStartSecForTrack,
       startTransitionInterval,
       syncYtPrerolledDrift,
       waitForYtDeckPlaying,
@@ -1522,16 +1717,13 @@ export function PlayerBar({
       if (transitionRef.current) return;
       if (!Number.isFinite(durSec) || durSec <= 4) return;
 
-      const hookWin = getHookForTrack(track, durSec);
-      // Hook Mode cuts at hook.endSec; Full Song Mode cuts at duration - 2s (just like bajao.party)
-      const exitTarget = hookModeRef.current
-        ? Math.min(durSec, hookWin.endSec)
-        : Math.max(4, durSec - FULL_SONG_CUTOFF_LEAD_SEC);
-      const remaining = exitTarget - curSec;
-
       if (repeatModeRef.current === 'one') {
-        if (remaining <= 0.25) {
-          const loopStart = hookModeRef.current ? hookWin.startSec : 0;
+        const loopEndTarget = hookModeRef.current
+          ? Math.min(durSec, getHookForTrack(track, durSec).endSec)
+          : Math.max(4, durSec - 0.5);
+        if (loopEndTarget - curSec <= 0.25) {
+          const loopStart = getStartSecForTrack(track, durSec);
+          ytExpectedStartSecRef.current[activeYtDeckIdxRef.current] = loopStart;
           if (sourceKind === 'youtube') {
             ytPlayersRef.current[activeYtDeckIdxRef.current]?.seekTo(
               loopStart,
@@ -1545,6 +1737,10 @@ export function PlayerBar({
         }
         return;
       }
+
+      // Hook Mode starts Early Crossfade `fadeSec` before hook.endSec; Full Song Mode blends `fadeSec` before end
+      const exitTarget = getAutoExitTargetSec(track, durSec);
+      const remaining = exitTarget - curSec;
 
       if (transitionLockFromIdRef.current === track.id) return;
 
@@ -1570,9 +1766,7 @@ export function PlayerBar({
       const nextIsYt =
         next.playbackRights === 'embed-only' && Boolean(next.embedId);
       const incomingKind: 'audio' | 'youtube' = nextIsYt ? 'youtube' : 'audio';
-      const nextStartSec = hookModeRef.current
-        ? getHookForTrack(next, next.durationSec || 218).startSec
-        : 0;
+      const nextStartSec = getStartSecForTrack(next, next.durationSec || 218);
 
       // Within bajao.party preroll window (3s normal / 6s slow): silently pre-roll standby deck + schedule exact exit cut
       if (remaining > 0.05 && remaining <= prerollLeadSec) {
@@ -1605,23 +1799,23 @@ export function PlayerBar({
             } catch {
               // ignore
             }
-            if (liveCur < exitTarget - 0.15) return;
+            if (liveCur < exitTarget - 0.2) return;
             triggerBajaoCrossfade(sourceKind);
           }, Math.max(0, remaining * 1000));
         }
 
-        const canPrerollOffset =
-          remaining >= PREROLL_MIN_REMAINING_SEC &&
-          nextStartSec >= remaining + 0.2;
-
-        if (canPrerollOffset) {
-          const prerollStartSec = Math.max(
-            0,
-            Math.min(
-              nextStartSec - 0.1,
-              nextStartSec - remaining + ytPrerollLatencyRef.current
-            )
-          );
+        // Pre-roll standby deck silently in BOTH Hook Mode and Full Song Mode so next song starts immediately with zero wait
+        if (remaining >= PREROLL_MIN_REMAINING_SEC) {
+          const prerollStartSec =
+            nextStartSec >= remaining + 0.2
+              ? Math.max(
+                  0,
+                  Math.min(
+                    nextStartSec - 0.1,
+                    nextStartSec - remaining + ytPrerollLatencyRef.current
+                  )
+                )
+              : Math.max(0, nextStartSec);
 
           if (incomingKind === 'youtube') {
             const outgoingYtDeckIdx = activeYtDeckIdxRef.current;
@@ -1636,6 +1830,7 @@ export function PlayerBar({
               ytPreRolledRef.current[incomingYtDeckIdx] = true;
               ytStartZeroRef.current[incomingYtDeckIdx] = true;
               ytPrerollStartSecRef.current[incomingYtDeckIdx] = prerollStartSec;
+              ytExpectedStartSecRef.current[incomingYtDeckIdx] = nextStartSec;
 
               const standbyPlayer = ytPlayersRef.current[incomingYtDeckIdx];
               if (
@@ -1700,7 +1895,7 @@ export function PlayerBar({
         return;
       }
 
-      // Reached exitTarget (hook.endSec or duration - 2s): execute BPM-matched equal-power crossfade
+      // Reached Early Crossfade point (before hook.endSec or song end): start next song's hook & blend
       if (remaining <= 0.05) {
         triggerBajaoCrossfade(sourceKind);
       }
@@ -1708,8 +1903,10 @@ export function PlayerBar({
     [
       abortStandbyPreroll,
       clearExitTimer,
+      getAutoExitTargetSec,
       getDeck,
       getHookForTrack,
+      getStartSecForTrack,
       triggerBajaoCrossfade,
     ]
   );
@@ -1717,21 +1914,328 @@ export function PlayerBar({
   // Unified dual-deck HTML5 <audio> & YouTube handoff synchronization
   useEffect(() => {
     if (!currentTrack) {
+      manualSwitchGenRef.current += 1;
+      stopManualFade();
+      manualFadeOutAudioIdxRef.current = null;
+      manualFadeOutYtSlotRef.current = null;
+      autoCompletedTrackIdRef.current = '';
+      prevRenderedTrackRef.current = null;
       cancelTransition(true);
       clearDeck(0);
       clearDeck(1);
-      ytStartZeroRef.current = [false, false];
-      ytPreRolledRef.current = [false, false];
-      ytPrerollStartSecRef.current = [0, 0];
-      ytDeckModeRef.current = ['idle', 'idle'];
-      ytAdActiveRef.current = [false, false];
-      ytAdRetriedRef.current = [false, false];
-      ytBlockedRetryDoneRef.current = [false, false];
+      hardSilenceYtSlot(0);
+      hardSilenceYtSlot(1);
+      consecutiveAdSkipsRef.current = 0;
+      setYtAdActiveState(false);
       setYtSlotTracks([null, null]);
       setMinimizedDrawerTab(null);
       setConsoleDrawerTab(null);
       setCurrentTime(0);
       setDuration(0);
+      return;
+    }
+
+    const prevTrack = prevRenderedTrackRef.current;
+    const trackChanged = prevTrack?.id !== currentTrack.id;
+    const isAutoCrossfadeHandoff =
+      trackChanged && autoCompletedTrackIdRef.current === currentTrack.id;
+    if (trackChanged) {
+      autoCompletedTrackIdRef.current = '';
+      prevRenderedTrackRef.current = currentTrack;
+    }
+    const isManualSwitch = trackChanged && prevTrack !== null && !isAutoCrossfadeHandoff;
+
+    if (isManualSwitch) {
+      const switchGen = ++manualSwitchGenRef.current;
+      stopManualFade();
+      cancelTransition(true);
+      clearExitTimer();
+      abortStandbyPreroll();
+      transitionLockFromIdRef.current = '';
+      lastCrossfadeAttemptMsRef.current = 0;
+
+      // Rapid-click protection: hard-silence any prior still-fading deck/slot before reusing it
+      if (manualFadeOutAudioIdxRef.current !== null) {
+        clearDeck(manualFadeOutAudioIdxRef.current);
+        manualFadeOutAudioIdxRef.current = null;
+      }
+      if (manualFadeOutYtSlotRef.current !== null) {
+        hardSilenceYtSlot(manualFadeOutYtSlotRef.current);
+        manualFadeOutYtSlotRef.current = null;
+      }
+
+      const prevWasYt = Boolean(
+        prevTrack.playbackRights === 'embed-only' && prevTrack.embedId
+      );
+      const prevAudioIdx = activeDeckIdxRef.current;
+      const prevAudioDeck = getDeck(prevAudioIdx);
+      const prevYtSlot = activeYtDeckIdxRef.current;
+
+      let outAudioIdx: 0 | 1 | null = null;
+      let outAudioStartVol = 0;
+      let outYtSlot: 0 | 1 | null = null;
+      let outYtStartVol = 0;
+
+      if (
+        !prevWasYt &&
+        prevAudioDeck &&
+        deckTrackIdRef.current[prevAudioIdx] === prevTrack.id &&
+        !prevAudioDeck.paused &&
+        prevAudioDeck.volume > 0.005
+      ) {
+        outAudioIdx = prevAudioIdx;
+        outAudioStartVol = prevAudioDeck.volume;
+      } else if (
+        prevWasYt &&
+        ytDeckTrackIdRef.current[prevYtSlot] === prevTrack.id &&
+        ytPlayersRef.current[prevYtSlot] &&
+        ytReadyRef.current[prevYtSlot] &&
+        !ytAdActiveRef.current[prevYtSlot] &&
+        effectiveGainRef.current > 0.005
+      ) {
+        try {
+          const st = ytPlayersRef.current[prevYtSlot]?.getPlayerState?.();
+          if (st === 1 || st === 3) {
+            outYtSlot = prevYtSlot;
+            outYtStartVol = effectiveGainRef.current;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      const startSec = getStartSecForTrack(
+        currentTrack,
+        currentTrack.durationSec || 218
+      );
+      setAudioError(null);
+      setCurrentTime(startSec);
+      setDuration(currentTrack.durationSec || 0);
+
+      let inAudioIdx: 0 | 1 | null = null;
+      let inYtSlot: 0 | 1 | null = null;
+
+      if (isCurrentYouTube) {
+        if (outAudioIdx !== null && isPlaying) {
+          const otherAudio: 0 | 1 = outAudioIdx === 0 ? 1 : 0;
+          clearDeck(otherAudio);
+          manualFadeOutAudioIdxRef.current = outAudioIdx;
+        } else {
+          clearDeck(0);
+          clearDeck(1);
+          outAudioIdx = null;
+        }
+        audioPreRolledRef.current = [false, false];
+
+        const altYtSlot: 0 | 1 = prevYtSlot === 0 ? 1 : 0;
+        const canReuseAltWarmed =
+          ytDeckTrackIdRef.current[altYtSlot] === currentTrack.id &&
+          ytReadyRef.current[altYtSlot] &&
+          ytPlayersRef.current[altYtSlot] &&
+          outYtSlot !== altYtSlot;
+
+        const targetYtSlot: 0 | 1 = canReuseAltWarmed
+          ? altYtSlot
+          : outYtSlot !== null
+            ? (outYtSlot === 0 ? 1 : 0)
+            : 0;
+        const otherYtSlot: 0 | 1 = targetYtSlot === 0 ? 1 : 0;
+        inYtSlot = targetYtSlot;
+
+        if (outYtSlot === otherYtSlot && isPlaying) {
+          ytDeckModeRef.current[otherYtSlot] = 'fadeout';
+          ytAwaitingPlayRef.current[otherYtSlot] = false;
+          ytAwaitingPlaySinceRef.current[otherYtSlot] = 0;
+          manualFadeOutYtSlotRef.current = otherYtSlot;
+        } else {
+          hardSilenceYtSlot(otherYtSlot);
+          outYtSlot = null;
+        }
+
+        const shouldFade = isPlaying && (outAudioIdx !== null || outYtSlot !== null);
+        const wasAlreadyCuedOnTarget =
+          ytDeckTrackIdRef.current[targetYtSlot] === currentTrack.id &&
+          ytReadyRef.current[targetYtSlot] &&
+          ytPlayersRef.current[targetYtSlot];
+
+        activeYtDeckIdxRef.current = targetYtSlot;
+        setActiveYtDeckIdx(targetYtSlot);
+        ytDeckModeRef.current[targetYtSlot] = 'active';
+        ytStartZeroRef.current[targetYtSlot] = shouldFade;
+        ytPreRolledRef.current[targetYtSlot] = false;
+        ytPrerollStartSecRef.current[targetYtSlot] = 0;
+        ytExpectedStartSecRef.current[targetYtSlot] = startSec;
+        ytOffsetVerifiedRef.current[targetYtSlot] = false;
+        ytOffsetSeekTriedAtRef.current[targetYtSlot] = 0;
+        ytBlockedRetryDoneRef.current[targetYtSlot] = false;
+        ytAdActiveRef.current[targetYtSlot] = false;
+        ytAdStartedAtRef.current[targetYtSlot] = 0;
+        ytAdRetriedRef.current[targetYtSlot] = false;
+        ytAdReloadedRef.current[targetYtSlot] = false;
+        setYtAdActiveState(false);
+
+        const nextSlots: [Track | null, Track | null] = [null, null];
+        nextSlots[targetYtSlot] = currentTrack;
+        if (manualFadeOutYtSlotRef.current === otherYtSlot) {
+          nextSlots[otherYtSlot] = ytDesiredTrackRef.current[otherYtSlot];
+        }
+        setYtSlotTracks(nextSlots);
+
+        if (wasAlreadyCuedOnTarget) {
+          const p = ytPlayersRef.current[targetYtSlot]!;
+          ytDesiredTrackRef.current[targetYtSlot] = currentTrack;
+          setYtDeckVolume(targetYtSlot, shouldFade ? 0 : effectiveGainRef.current);
+          if (startSec > 0) {
+            try {
+              p.seekTo(startSec, true);
+            } catch {
+              // ignore
+            }
+          }
+          if (isPlaying) {
+            ytAwaitingPlayRef.current[targetYtSlot] = true;
+            ytAwaitingPlaySinceRef.current[targetYtSlot] = Date.now();
+            try {
+              p.playVideo();
+            } catch {
+              // ignore
+            }
+          }
+        } else if (ytPlayersRef.current[targetYtSlot] && ytReadyRef.current[targetYtSlot]) {
+          // Trigger loadVideoById synchronously for zero click-to-load lag
+          ensureYtSlotSynced(targetYtSlot, currentTrack);
+        }
+      } else {
+        // Incoming track is direct Audio
+        if (!currentTrack.streamUrl) return;
+        const targetAudioIdx: 0 | 1 =
+          outAudioIdx !== null ? (outAudioIdx === 0 ? 1 : 0) : activeDeckIdxRef.current;
+        const targetDeck = getDeck(targetAudioIdx);
+        if (!targetDeck) return;
+
+        const otherAudioIdx: 0 | 1 = targetAudioIdx === 0 ? 1 : 0;
+        if (outAudioIdx === otherAudioIdx && isPlaying) {
+          manualFadeOutAudioIdxRef.current = otherAudioIdx;
+        } else {
+          clearDeck(otherAudioIdx);
+          outAudioIdx = null;
+        }
+        audioPreRolledRef.current = [false, false];
+
+        if (outYtSlot !== null && isPlaying) {
+          const nonFadeYt: 0 | 1 = outYtSlot === 0 ? 1 : 0;
+          hardSilenceYtSlot(nonFadeYt);
+          ytDeckModeRef.current[outYtSlot] = 'fadeout';
+          ytAwaitingPlayRef.current[outYtSlot] = false;
+          ytAwaitingPlaySinceRef.current[outYtSlot] = 0;
+          manualFadeOutYtSlotRef.current = outYtSlot;
+          const nextSlots: [Track | null, Track | null] = [null, null];
+          nextSlots[outYtSlot] = ytDesiredTrackRef.current[outYtSlot];
+          setYtSlotTracks(nextSlots);
+        } else {
+          hardSilenceYtSlot(0);
+          hardSilenceYtSlot(1);
+          setYtSlotTracks([null, null]);
+          outYtSlot = null;
+        }
+        setYtAdActiveState(false);
+
+        const resolvedUrl = new URL(currentTrack.streamUrl, window.location.origin).href;
+        const shouldFade = isPlaying && (outAudioIdx !== null || outYtSlot !== null);
+        activeDeckIdxRef.current = targetAudioIdx;
+        deckTrackIdRef.current[targetAudioIdx] = currentTrack.id;
+        deckUrlRef.current[targetAudioIdx] = resolvedUrl;
+        pendingAudioHookSeekTrackIdRef.current = startSec > 0 ? currentTrack.id : '';
+        audioSwitchingDeckRef.current[targetAudioIdx] = true;
+        targetDeck.volume = shouldFade ? 0 : effectiveGainRef.current;
+        targetDeck.src = resolvedUrl;
+        targetDeck.load();
+        inAudioIdx = targetAudioIdx;
+
+        if (isPlaying) {
+          const playPromise = targetDeck.play();
+          if (playPromise !== undefined) {
+            playPromise.catch((err: unknown) => {
+              const name = (err as { name?: string })?.name;
+              if (name === 'AbortError') return;
+              if (name === 'NotAllowedError') {
+                setAudioError('Tap Play again to enable browser audio playback.');
+              } else {
+                setAudioError('Could not start audio stream for this track.');
+              }
+              onSetPlayingStateRef.current(false);
+            });
+          }
+        } else {
+          targetDeck.pause();
+        }
+      }
+
+      // Ultra-short 240ms anti-click fade transition for manual switches
+      if (isPlaying && (outAudioIdx !== null || outYtSlot !== null)) {
+        const capturedOutAudio = outAudioIdx;
+        const capturedOutYt = outYtSlot;
+        const capturedInAudio = inAudioIdx;
+        const capturedInYt = inYtSlot;
+        const startPerf = performance.now();
+
+        manualFadeStopRef.current = startBackgroundTicker(() => {
+          if (manualSwitchGenRef.current !== switchGen) return;
+          const p = Math.min(1, (performance.now() - startPerf) / MANUAL_SWITCH_FADE_MS);
+          const master = effectiveGainRef.current;
+
+          if (capturedOutAudio !== null) {
+            const od = getDeck(capturedOutAudio);
+            if (od) od.volume = Math.max(0, Math.min(1, outAudioStartVol * (1 - p)));
+          }
+          if (capturedOutYt !== null) {
+            setYtDeckVolume(capturedOutYt, Math.max(0, outYtStartVol * (1 - p)));
+          }
+
+          if (capturedInAudio !== null) {
+            const idDeck = getDeck(capturedInAudio);
+            if (idDeck) idDeck.volume = Math.max(0, Math.min(1, master * p));
+          }
+          if (capturedInYt !== null) {
+            if (p > 0.05) {
+              ytStartZeroRef.current[capturedInYt] = false;
+            }
+            setYtDeckVolume(capturedInYt, master * p);
+          }
+
+          if (p >= 1) {
+            stopManualFade();
+            if (manualFadeOutAudioIdxRef.current !== null) {
+              clearDeck(manualFadeOutAudioIdxRef.current);
+              manualFadeOutAudioIdxRef.current = null;
+            }
+            if (manualFadeOutYtSlotRef.current !== null) {
+              const finishedFadeYt = manualFadeOutYtSlotRef.current;
+              hardSilenceYtSlot(finishedFadeYt);
+              manualFadeOutYtSlotRef.current = null;
+              setYtSlotTracks((prev) => {
+                if (!prev[finishedFadeYt] || ytDeckModeRef.current[finishedFadeYt] === 'active') {
+                  return prev;
+                }
+                const next: [Track | null, Track | null] = [...prev] as [
+                  Track | null,
+                  Track | null,
+                ];
+                next[finishedFadeYt] = null;
+                return next;
+              });
+            }
+            if (capturedInAudio !== null) {
+              const idDeck = getDeck(capturedInAudio);
+              if (idDeck) idDeck.volume = master;
+            }
+            if (capturedInYt !== null) {
+              ytStartZeroRef.current[capturedInYt] = false;
+              setYtDeckVolume(capturedInYt, master);
+            }
+          }
+        }, 20);
+      }
       return;
     }
 
@@ -1762,9 +2266,10 @@ export function PlayerBar({
         transitionLockFromIdRef.current = '';
         lastCrossfadeAttemptMsRef.current = 0;
         setAudioError(null);
-        const startSec = hookModeRef.current
-          ? getHookForTrack(currentTrack, currentTrack.durationSec || 218).startSec
-          : 0;
+        const startSec = getStartSecForTrack(
+          currentTrack,
+          currentTrack.durationSec || 218
+        );
         setCurrentTime(startSec);
         setDuration(currentTrack.durationSec || 0);
 
@@ -1777,11 +2282,22 @@ export function PlayerBar({
           ytStartZeroRef.current[warmedSlot] = false;
           ytPreRolledRef.current[warmedSlot] = false;
           ytPrerollStartSecRef.current[warmedSlot] = 0;
+          ytExpectedStartSecRef.current[warmedSlot] = startSec;
+          ytOffsetVerifiedRef.current[warmedSlot] = false;
+          ytOffsetSeekTriedAtRef.current[warmedSlot] = 0;
 
           ytDeckModeRef.current[prevSlot] = 'idle';
           ytStartZeroRef.current[prevSlot] = false;
           ytPreRolledRef.current[prevSlot] = false;
           ytPrerollStartSecRef.current[prevSlot] = 0;
+          ytAdActiveRef.current[prevSlot] = false;
+          ytAdStartedAtRef.current[prevSlot] = 0;
+          ytAdRetriedRef.current[prevSlot] = false;
+          ytAdReloadedRef.current[prevSlot] = false;
+          ytExpectedStartSecRef.current[prevSlot] = 0;
+          ytOffsetVerifiedRef.current[prevSlot] = false;
+          ytOffsetSeekTriedAtRef.current[prevSlot] = 0;
+          setYtAdActiveState(ytAdActiveRef.current[warmedSlot]);
 
           setYtSlotTracks(() => {
             const nextSlots: [Track | null, Track | null] = [null, null];
@@ -1817,8 +2333,14 @@ export function PlayerBar({
           ytPrerollStartSecRef.current = [0, 0];
           ytDeckModeRef.current = ['active', 'idle'];
           ytAdActiveRef.current = [false, false];
+          ytAdStartedAtRef.current = [0, 0];
           ytAdRetriedRef.current = [false, false];
+          ytAdReloadedRef.current = [false, false];
+          ytExpectedStartSecRef.current = [startSec, 0];
+          ytOffsetVerifiedRef.current = [false, false];
+          ytOffsetSeekTriedAtRef.current = [0, 0];
           ytBlockedRetryDoneRef.current = [false, false];
+          setYtAdActiveState(false);
           setYtSlotTracks([currentTrack, null]);
         }
       }
@@ -1843,13 +2365,9 @@ export function PlayerBar({
       clearExitTimer();
       clearDeck(idleIdx);
       audioPreRolledRef.current = [false, false];
-      ytStartZeroRef.current = [false, false];
-      ytPreRolledRef.current = [false, false];
-      ytPrerollStartSecRef.current = [0, 0];
-      ytDeckModeRef.current = ['idle', 'idle'];
-      ytAdActiveRef.current = [false, false];
-      ytAdRetriedRef.current = [false, false];
-      ytBlockedRetryDoneRef.current = [false, false];
+      hardSilenceYtSlot(0);
+      hardSilenceYtSlot(1);
+      setYtAdActiveState(false);
       setYtSlotTracks([null, null]);
       transitionLockFromIdRef.current = '';
       lastCrossfadeAttemptMsRef.current = 0;
@@ -1857,9 +2375,10 @@ export function PlayerBar({
       deckTrackIdRef.current[activeIdx] = currentTrack.id;
       deckUrlRef.current[activeIdx] = resolvedUrl;
       setAudioError(null);
-      const startSec = hookModeRef.current
-        ? getHookForTrack(currentTrack, currentTrack.durationSec || 218).startSec
-        : 0;
+      const startSec = getStartSecForTrack(
+        currentTrack,
+        currentTrack.durationSec || 218
+      );
       pendingAudioHookSeekTrackIdRef.current = startSec > 0 ? currentTrack.id : '';
       setCurrentTime(startSec);
       setDuration(currentTrack.durationSec || 0);
@@ -1900,15 +2419,23 @@ export function PlayerBar({
     currentTrack?.streamUrl,
     isPlaying,
     isCurrentYouTube,
+    abortStandbyPreroll,
     cancelTransition,
     clearDeck,
+    clearExitTimer,
     getDeck,
-    getHookForTrack,
+    getStartSecForTrack,
+    hardSilenceYtSlot,
+    setYtDeckVolume,
+    stopManualFade,
   ]);
 
   // Sync YouTube Slot 0 and Slot 1 using persistent YT.Player instances + loadVideoById
   const ensureYtSlotSynced = useCallback(
     (slotIdx: 0 | 1, track: Track | null) => {
+      if (ytDeckModeRef.current[slotIdx] === 'fadeout') {
+        return;
+      }
       ytDesiredTrackRef.current[slotIdx] = track;
       const existingPlayer = ytPlayersRef.current[slotIdx];
 
@@ -1938,14 +2465,13 @@ export function PlayerBar({
         (isPlayingRef.current ||
           slotMode === 'crossfade' ||
           slotMode === 'preroll');
-      const hookStartSec = hookModeRef.current
-        ? getHookForTrack(track, track.durationSec || 218).startSec
-        : 0;
+      const entryStartSec = getStartSecForTrack(track, track.durationSec || 218);
       const targetStartSec =
         (slotMode === 'preroll' || slotMode === 'crossfade') &&
         ytPreRolledRef.current[slotIdx]
           ? ytPrerollStartSecRef.current[slotIdx]
-          : hookStartSec;
+          : entryStartSec;
+      ytExpectedStartSecRef.current[slotIdx] = targetStartSec;
 
       // Fast path: persistent player already created & ready -> reuse via loadVideoById (no iframe rebuild!)
       if (existingPlayer && ytReadyRef.current[slotIdx]) {
@@ -1957,8 +2483,15 @@ export function PlayerBar({
         if (!sameTrack) {
           ytEmbedRetryIdxRef.current[slotIdx] = 0;
           ytAdActiveRef.current[slotIdx] = false;
+          ytAdStartedAtRef.current[slotIdx] = 0;
           ytAdRetriedRef.current[slotIdx] = false;
+          ytAdReloadedRef.current[slotIdx] = false;
+          ytOffsetVerifiedRef.current[slotIdx] = false;
+          ytOffsetSeekTriedAtRef.current[slotIdx] = 0;
           ytBlockedRetryDoneRef.current[slotIdx] = false;
+          if (slotIdx === activeYtDeckIdxRef.current && slotMode === 'active') {
+            setYtAdActiveState(false);
+          }
         }
 
         if (isPrecueOnly) {
@@ -1968,13 +2501,15 @@ export function PlayerBar({
           } catch {
             // ignore
           }
-        } else if (startZero) {
+        } else if (startZero || (manualFadeStopRef.current !== null && slotIdx === activeYtDeckIdxRef.current)) {
           try {
             if (mutedRef.current || volumeRef.current === 0) {
               existingPlayer.mute();
             } else {
               existingPlayer.unMute();
-              existingPlayer.setVolume(0);
+              if (startZero) {
+                existingPlayer.setVolume(0);
+              }
             }
           } catch {
             // ignore
@@ -2016,7 +2551,7 @@ export function PlayerBar({
           }
         } else if (shouldAutoPlay) {
           const curState = existingPlayer.getPlayerState?.();
-          if (slotMode !== 'crossfade' || (curState !== 1 && curState !== 3)) {
+          if (curState !== 1 && curState !== 3) {
             ytAwaitingPlayRef.current[slotIdx] = true;
             ytAwaitingPlaySinceRef.current[slotIdx] = Date.now();
             try {
@@ -2037,9 +2572,14 @@ export function PlayerBar({
       ytDeckTrackIdRef.current[slotIdx] = track.id;
       ytEmbedRetryIdxRef.current[slotIdx] = 0;
       ytAdActiveRef.current[slotIdx] = false;
+      ytAdStartedAtRef.current[slotIdx] = 0;
       ytAdRetriedRef.current[slotIdx] = false;
+      ytAdReloadedRef.current[slotIdx] = false;
+      ytOffsetVerifiedRef.current[slotIdx] = false;
+      ytOffsetSeekTriedAtRef.current[slotIdx] = 0;
       ytBlockedRetryDoneRef.current[slotIdx] = false;
       if (slotIdx === activeYtDeckIdxRef.current && slotMode === 'active') {
+        setYtAdActiveState(false);
         setYtBuffering(true);
       }
 
@@ -2090,8 +2630,12 @@ export function PlayerBar({
               }
 
               const latestTrack = ytDesiredTrackRef.current[slotIdx];
-              if (!latestTrack || !latestTrack.embedId) {
+              if (!latestTrack || !latestTrack.embedId || ytDeckModeRef.current[slotIdx] === 'fadeout') {
                 try {
+                  if (ytDeckModeRef.current[slotIdx] === 'fadeout') {
+                    event.target.mute();
+                    event.target.setVolume(0);
+                  }
                   event.target.pauseVideo();
                 } catch {
                   // ignore
@@ -2113,14 +2657,16 @@ export function PlayerBar({
                 (isPlayingRef.current ||
                   latestMode === 'crossfade' ||
                   latestMode === 'preroll');
-              const latestHookStart = hookModeRef.current
-                ? getHookForTrack(latestTrack, latestTrack.durationSec || 218).startSec
-                : 0;
+              const latestEntryStart = getStartSecForTrack(
+                latestTrack,
+                latestTrack.durationSec || 218
+              );
               const latestTargetStart =
                 (latestMode === 'preroll' || latestMode === 'crossfade') &&
                 ytPreRolledRef.current[slotIdx]
                   ? ytPrerollStartSecRef.current[slotIdx]
-                  : latestHookStart;
+                  : latestEntryStart;
+              ytExpectedStartSecRef.current[slotIdx] = latestTargetStart;
 
               if (latestIsPrecue) {
                 try {
@@ -2210,6 +2756,7 @@ export function PlayerBar({
             },
             onStateChange: (event) => {
               if (!ytDesiredTrackRef.current[slotIdx]) return;
+              if (ytDeckModeRef.current[slotIdx] === 'fadeout') return;
               const UNSTARTED = window.YT?.PlayerState?.UNSTARTED ?? -1;
               const ENDED = window.YT?.PlayerState?.ENDED ?? 0;
               const PLAYING = window.YT?.PlayerState?.PLAYING ?? 1;
@@ -2362,19 +2909,25 @@ export function PlayerBar({
                 } else if (!transitionRef.current && isActiveSlot) {
                   if (repeatModeRef.current === 'one') {
                     const desired = ytDesiredTrackRef.current[slotIdx];
-                    const restartAt =
-                      hookModeRef.current && desired
-                        ? getHookForTrack(desired, desired.durationSec || 218).startSec
-                        : 0;
+                    const restartAt = desired
+                      ? getStartSecForTrack(desired, desired.durationSec || 218)
+                      : 0;
+                    ytExpectedStartSecRef.current[slotIdx] = restartAt;
+                    ytOffsetVerifiedRef.current[slotIdx] = false;
+                    ytOffsetSeekTriedAtRef.current[slotIdx] = 0;
                     event.target.seekTo(restartAt, true);
                     event.target.playVideo();
-                  } else {
+                  } else if (!triggerBajaoCrossfade('youtube', true)) {
                     onPlaybackEndedRef.current();
                   }
                 }
               }
             },
             onError: () => {
+              if (ytDeckModeRef.current[slotIdx] === 'fadeout') {
+                hardSilenceYtSlot(slotIdx);
+                return;
+              }
               const isStandbySlot =
                 ytDeckModeRef.current[slotIdx] === 'precue' ||
                 ytDeckModeRef.current[slotIdx] === 'preroll' ||
@@ -2423,8 +2976,9 @@ export function PlayerBar({
     [
       cancelTransition,
       finishTransition,
-      getHookForTrack,
+      getStartSecForTrack,
       setYtDeckVolume,
+      triggerBajaoCrossfade,
       tryYtFallbackEmbed,
     ]
   );
@@ -2480,12 +3034,12 @@ export function PlayerBar({
     }
   }, [isPlaying, isCurrentYouTube, currentTrack?.id, ytSlotTracks]);
 
-  // Sync Play/Pause across active and actively pre-rolling/crossfading YouTube decks (never auto-play precue-only deck)
+  // Sync Play/Pause across active and actively pre-rolling/crossfading YouTube decks (never auto-play precue-only or fadeout deck)
   useEffect(() => {
     ([0, 1] as const).forEach((slotIdx) => {
       if (!ytSlotTracks[slotIdx]) return;
       const slotMode = ytDeckModeRef.current[slotIdx];
-      if (slotMode === 'precue') return;
+      if (slotMode === 'precue' || slotMode === 'fadeout') return;
       const player = ytPlayersRef.current[slotIdx];
       if (!player || !ytReadyRef.current[slotIdx]) return;
       try {
@@ -2650,11 +3204,48 @@ export function PlayerBar({
         const cur = player.getCurrentTime();
         const dur = player.getDuration();
         const activeTrack = currentTrackRef.current;
-        const isAdPlaying = isLikelyYtAdDuration(dur, activeTrack);
+        const nowMs = Date.now();
+        const expectedStart = ytExpectedStartSecRef.current[activeSlot];
+        const durLooksLikeAd = isLikelyYtAdDuration(dur, activeTrack);
+
+        // Detect YouTube pre-roll ads by startSeconds mismatch (YouTube plays from 0..10s and blocks seekTo)
+        let offsetBlockedAsAd = false;
+        if (
+          activeTrack &&
+          ytState === 1 &&
+          !transitionRef.current &&
+          expectedStart >= 12 &&
+          Number.isFinite(cur)
+        ) {
+          if (!ytOffsetVerifiedRef.current[activeSlot]) {
+            if (cur >= expectedStart - 3) {
+              ytOffsetVerifiedRef.current[activeSlot] = true;
+              ytOffsetSeekTriedAtRef.current[activeSlot] = 0;
+            } else if (cur < expectedStart - 4) {
+              if (!ytOffsetSeekTriedAtRef.current[activeSlot]) {
+                ytOffsetSeekTriedAtRef.current[activeSlot] = nowMs;
+                try {
+                  player.seekTo(expectedStart, true);
+                } catch {
+                  // ignore
+                }
+              } else if (nowMs - ytOffsetSeekTriedAtRef.current[activeSlot] > 750) {
+                offsetBlockedAsAd = true;
+              }
+            }
+          }
+        }
+
+        const isAdPlaying =
+          ytState === 1 ? durLooksLikeAd || offsetBlockedAsAd : durLooksLikeAd;
 
         if (isAdPlaying) {
-          // Bajao-style YouTube ad avoidance: mute ad audio immediately and try ad-free fallback ID if available
-          ytAdActiveRef.current[activeSlot] = true;
+          // Bajao-style YouTube ad avoidance: hide behind artwork, mute immediately, try fallback / clean reload, or crossfade past unskippable ad
+          if (!ytAdActiveRef.current[activeSlot]) {
+            ytAdActiveRef.current[activeSlot] = true;
+            ytAdStartedAtRef.current[activeSlot] = nowMs;
+            setYtAdActiveState(true);
+          }
           ytBufferingSinceRef.current = null;
           setYtBuffering(false);
           try {
@@ -2669,21 +3260,68 @@ export function PlayerBar({
               return;
             }
           }
+          if (
+            !ytAdReloadedRef.current[activeSlot] &&
+            nowMs - ytAdStartedAtRef.current[activeSlot] >= 900 &&
+            activeTrack?.embedId &&
+            player.loadVideoById
+          ) {
+            ytAdReloadedRef.current[activeSlot] = true;
+            const restartAt = getStartSecForTrack(
+              activeTrack,
+              activeTrack.durationSec || 218
+            );
+            ytExpectedStartSecRef.current[activeSlot] = restartAt;
+            ytOffsetVerifiedRef.current[activeSlot] = false;
+            ytOffsetSeekTriedAtRef.current[activeSlot] = 0;
+            try {
+              player.loadVideoById({
+                videoId: activeTrack.embedId,
+                startSeconds: restartAt,
+              });
+              player.playVideo();
+            } catch {
+              // ignore
+            }
+            return;
+          }
+          if (
+            nowMs - ytAdStartedAtRef.current[activeSlot] >= YT_UNSKIPPABLE_AD_BYPASS_MS &&
+            consecutiveAdSkipsRef.current < MAX_CONSECUTIVE_AD_SKIPS
+          ) {
+            const next = activeTrack ? getNextTrackRef.current(activeTrack.id) : null;
+            if (next && next.id !== activeTrack?.id) {
+              consecutiveAdSkipsRef.current += 1;
+              ytAdActiveRef.current[activeSlot] = false;
+              ytAdStartedAtRef.current[activeSlot] = 0;
+              setYtAdActiveState(false);
+              if (!triggerBajaoCrossfade('youtube', true)) {
+                onPlaybackEndedRef.current();
+              }
+              return;
+            }
+          }
           if (activeTrack?.durationSec) {
             setDuration(activeTrack.durationSec);
           }
         } else {
+          if (ytState === 1) {
+            consecutiveAdSkipsRef.current = 0;
+          }
           if (ytAdActiveRef.current[activeSlot]) {
             ytAdActiveRef.current[activeSlot] = false;
+            ytAdStartedAtRef.current[activeSlot] = 0;
+            setYtAdActiveState(false);
             setYtDeckVolume(activeSlot, effectiveGainRef.current);
-            // If ad reset playhead to 0 in Hook Mode, snap right back to the hook drop
-            if (hookModeRef.current && activeTrack) {
+            // If ad reset playhead to 0, snap right back to curated entry_sec / hook drop
+            if (activeTrack) {
               const resolvedDur =
                 Number.isFinite(dur) && dur > 0 ? dur : activeTrack.durationSec || 218;
-              const hookWin = getHookForTrack(activeTrack, resolvedDur);
-              if (Number.isFinite(cur) && cur < hookWin.startSec - 1.5) {
-                player.seekTo(hookWin.startSec, true);
-                setCurrentTime(hookWin.startSec);
+              const entryStart = getStartSecForTrack(activeTrack, resolvedDur);
+              ytExpectedStartSecRef.current[activeSlot] = entryStart;
+              if (entryStart > 0 && Number.isFinite(cur) && cur < entryStart - 1.5) {
+                player.seekTo(entryStart, true);
+                setCurrentTime(entryStart);
                 return;
               }
             }
@@ -2721,14 +3359,13 @@ export function PlayerBar({
                 }
               } else if (ytAdActiveRef.current[standbySlot]) {
                 ytAdActiveRef.current[standbySlot] = false;
-                if (hookModeRef.current) {
-                  const sCur = standbyPlayer.getCurrentTime();
-                  const resolvedSDur =
-                    Number.isFinite(sDur) && sDur > 0 ? sDur : standbyTrack.durationSec || 218;
-                  const sHookStart = getHookForTrack(standbyTrack, resolvedSDur).startSec;
-                  if (Number.isFinite(sCur) && sCur < sHookStart - 1.5) {
-                    standbyPlayer.seekTo(sHookStart, true);
-                  }
+                const sCur = standbyPlayer.getCurrentTime();
+                const resolvedSDur =
+                  Number.isFinite(sDur) && sDur > 0 ? sDur : standbyTrack.durationSec || 218;
+                const sEntryStart = getStartSecForTrack(standbyTrack, resolvedSDur);
+                ytExpectedStartSecRef.current[standbySlot] = sEntryStart;
+                if (sEntryStart > 0 && Number.isFinite(sCur) && sCur < sEntryStart - 1.5) {
+                  standbyPlayer.seekTo(sEntryStart, true);
                 }
               }
             } catch {
@@ -2747,11 +3384,12 @@ export function PlayerBar({
       }
     }, 120);
   }, [
-    getHookForTrack,
+    getStartSecForTrack,
     isCurrentYouTube,
     isPlaying,
     maybeStartCrossfade,
     setYtDeckVolume,
+    triggerBajaoCrossfade,
     tryYtFallbackEmbed,
   ]);
 
@@ -2781,7 +3419,9 @@ export function PlayerBar({
             try {
               const ytState = player.getPlayerState?.();
               const dur = player.getDuration?.() || 0;
-              const isAd = isLikelyYtAdDuration(dur, currentTrackRef.current);
+              const isAd =
+                ytAdActiveRef.current[activeSlot] ||
+                isLikelyYtAdDuration(dur, currentTrackRef.current);
               if (ytState === 1 && !isAd) {
                 const rawCur = player.getCurrentTime();
                 if (Number.isFinite(rawCur)) {
@@ -2885,6 +3525,9 @@ export function PlayerBar({
 
   // Sync volume, mute & voice ducking to active deck
   useEffect(() => {
+    if (manualFadeStopRef.current !== null) {
+      return;
+    }
     if (transitionRef.current) {
       const s = transitionRef.current;
       const p = Math.min(1, s.elapsedMs / s.durationMs);
@@ -2917,9 +3560,10 @@ export function PlayerBar({
     }
   }, [volume, muted, audioDucking, effectiveMasterGain, ytStageVisible, applyFadeVolumes, getDeck, setYtDeckVolume]);
 
-  // Cleanup crossfade ticker & exit timer on unmount
+  // Cleanup crossfade ticker, manual fade ticker & exit timer on unmount
   useEffect(() => {
     return () => {
+      stopManualFade();
       if (transitionRef.current?.stopTicker) {
         transitionRef.current.stopTicker();
       }
@@ -2930,17 +3574,16 @@ export function PlayerBar({
         ytWaitCancelRef.current();
       }
     };
-  }, []);
+  }, [stopManualFade]);
 
   const handleSeek = useCallback(
     (nextSec: number) => {
       const track = currentTrackRef.current;
       const dur = durationRef.current || track?.durationSec || 218;
       const clampedSec = Math.max(0, Math.min(dur, nextSec));
-      const exitTarget =
-        track && hookModeRef.current
-          ? Math.min(dur, getHookForTrack(track, dur).endSec)
-          : Math.max(4, dur - FULL_SONG_CUTOFF_LEAD_SEC);
+      const exitTarget = track
+        ? getAutoExitTargetSec(track, dur)
+        : Math.max(4, dur - 8);
       const remainingAfterSeek = exitTarget - clampedSec;
       const prerollLeadSec = getPrerollLeadSec();
 
@@ -2954,6 +3597,9 @@ export function PlayerBar({
       if (track?.playbackRights === 'embed-only' && track.embedId) {
         const activeSlot = activeYtDeckIdxRef.current;
         const player = ytPlayersRef.current[activeSlot];
+        ytExpectedStartSecRef.current[activeSlot] = clampedSec;
+        ytOffsetVerifiedRef.current[activeSlot] = true;
+        ytOffsetSeekTriedAtRef.current[activeSlot] = 0;
         if (player && ytReadyRef.current[activeSlot]) {
           player.seekTo(clampedSec, true);
           setCurrentTime(clampedSec);
@@ -2968,11 +3614,36 @@ export function PlayerBar({
       setCurrentTime(clampedSec);
       updateMediaSessionPosition(clampedSec, dur);
     },
-    [abortStandbyPreroll, cancelTransition, getDeck, getHookForTrack]
+    [abortStandbyPreroll, cancelTransition, getAutoExitTargetSec, getDeck]
   );
 
   const handleSeekRef = useRef(handleSeek);
   handleSeekRef.current = handleSeek;
+
+  const handleManualNext = useCallback(() => {
+    userPausedRef.current = false;
+    autoCompletedTrackIdRef.current = '';
+    cancelTransition(true);
+    abortStandbyPreroll();
+    transitionLockFromIdRef.current = '';
+    lastCrossfadeAttemptMsRef.current = 0;
+    onNextRef.current();
+  }, [abortStandbyPreroll, cancelTransition]);
+
+  const handleManualPrev = useCallback(() => {
+    userPausedRef.current = false;
+    autoCompletedTrackIdRef.current = '';
+    cancelTransition(true);
+    abortStandbyPreroll();
+    transitionLockFromIdRef.current = '';
+    lastCrossfadeAttemptMsRef.current = 0;
+    onPrevRef.current();
+  }, [abortStandbyPreroll, cancelTransition]);
+
+  const handleManualNextRef = useRef(handleManualNext);
+  handleManualNextRef.current = handleManualNext;
+  const handleManualPrevRef = useRef(handleManualPrev);
+  handleManualPrevRef.current = handleManualPrev;
 
   const handleTogglePlayPause = useCallback(() => {
     const nextPlaying = !isPlayingRef.current;
@@ -3110,12 +3781,10 @@ export function PlayerBar({
         onSetPlayingStateRef.current(false);
       },
       onNext: () => {
-        userPausedRef.current = false;
-        onNextRef.current();
+        handleManualNextRef.current();
       },
       onPrev: () => {
-        userPausedRef.current = false;
-        onPrevRef.current();
+        handleManualPrevRef.current();
       },
       onSeekTo: (timeSec) => handleSeekRef.current(timeSec),
       onSeekBy: (deltaSec) =>
@@ -3154,16 +3823,12 @@ export function PlayerBar({
       setDuration(loadedDur);
     }
     const track = currentTrackRef.current;
-    if (
-      hookModeRef.current &&
-      track &&
-      pendingAudioHookSeekTrackIdRef.current === track.id
-    ) {
+    if (track && pendingAudioHookSeekTrackIdRef.current === track.id) {
       pendingAudioHookSeekTrackIdRef.current = '';
-      const hookStart = getHookForTrack(track, loadedDur || 218).startSec;
+      const entryStart = getStartSecForTrack(track, loadedDur || 218);
       try {
-        deckEl.currentTime = hookStart;
-        setCurrentTime(hookStart);
+        deckEl.currentTime = entryStart;
+        setCurrentTime(entryStart);
       } catch {
         // ignore seek before ready
       }
@@ -3187,17 +3852,17 @@ export function PlayerBar({
     const activeDeck = getDeck(deckIdx);
     if (repeatModeRef.current === 'one' && activeDeck) {
       const track = currentTrackRef.current;
-      const restartSec =
-        hookModeRef.current && track
-          ? getHookForTrack(track, activeDeck.duration || track.durationSec || 218)
-              .startSec
-          : 0;
+      const restartSec = track
+        ? getStartSecForTrack(track, activeDeck.duration || track.durationSec || 218)
+        : 0;
       activeDeck.currentTime = restartSec;
       activeDeck.play().catch(() => {});
       return;
     }
 
-    onPlaybackEndedRef.current();
+    if (!triggerBajaoCrossfade('audio', true)) {
+      onPlaybackEndedRef.current();
+    }
   };
 
   const handleDeckError = (deckIdx: 0 | 1) => {
@@ -3378,7 +4043,8 @@ export function PlayerBar({
           <div
             ref={ytHost0Ref}
             className={`absolute inset-0 w-full h-full transition-opacity duration-700 ${
-              (visualCrossfadeYtIdx ?? activeYtDeckIdx) === 0
+              (visualCrossfadeYtIdx ?? activeYtDeckIdx) === 0 &&
+              !(isCurrentYouTube && ytAdActiveState && !crossfadeStatus)
                 ? `${ytDockedInsideConsole ? 'opacity-[0.88] group-hover:opacity-100' : 'opacity-100'} z-[2]`
                 : 'opacity-0 z-[1] pointer-events-none'
             }`}
@@ -3386,7 +4052,8 @@ export function PlayerBar({
           <div
             ref={ytHost1Ref}
             className={`absolute inset-0 w-full h-full transition-opacity duration-700 ${
-              (visualCrossfadeYtIdx ?? activeYtDeckIdx) === 1
+              (visualCrossfadeYtIdx ?? activeYtDeckIdx) === 1 &&
+              !(isCurrentYouTube && ytAdActiveState && !crossfadeStatus)
                 ? `${ytDockedInsideConsole ? 'opacity-[0.88] group-hover:opacity-100' : 'opacity-100'} z-[2]`
                 : 'opacity-0 z-[1] pointer-events-none'
             }`}
@@ -3400,11 +4067,11 @@ export function PlayerBar({
             />
           ) : null}
 
-          {isCurrentYouTube && isPlaying && ytBuffering ? (
+          {isCurrentYouTube && isPlaying && (ytBuffering || ytAdActiveState) ? (
             <div className="absolute inset-0 z-[15] flex flex-col items-center justify-center gap-2 bg-black/55 backdrop-blur-[2px] pointer-events-none">
               <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
               <span className="text-[11px] font-medium text-slate-200">
-                Loading stream...
+                {ytAdActiveState ? 'Skipping ad break...' : 'Loading stream...'}
               </span>
             </div>
           ) : null}
@@ -3597,13 +4264,21 @@ export function PlayerBar({
                         </span>
                         <span className="truncate">
                           {crossfadeStatus
-                            ? `Crossfading · ${crossfadeStatus.remainingSec}s`
+                            ? `${crossfadeSettings.djMode ? 'DJ Blend' : 'Crossfading'} · ${crossfadeStatus.remainingSec}s`
                             : hookMode
-                              ? isPlaying &&
-                                activeHookWindow.endSec - currentTime > 0 &&
-                                activeHookWindow.endSec - currentTime <= 60
-                                ? `Auto-Cut · Cut in ${Math.ceil(activeHookWindow.endSec - currentTime)}s`
-                                : 'Hook Mode'
+                              ? (() => {
+                                  const blendTrigger = getAutoExitTargetSec(
+                                    currentTrack,
+                                    effectiveDuration
+                                  );
+                                  const secsToBlend = blendTrigger - currentTime;
+                                  if (isPlaying && secsToBlend > 0 && secsToBlend <= 60) {
+                                    return `${
+                                      crossfadeSettings.djMode ? 'DJ Blend' : 'Early Blend'
+                                    } in ${Math.ceil(secsToBlend)}s`;
+                                  }
+                                  return 'Hook Mode';
+                                })()
                               : isPlaying
                                 ? 'Now Playing'
                                 : 'Paused'}
@@ -3739,6 +4414,7 @@ export function PlayerBar({
                     duration={effectiveDuration}
                     isPlaying={isPlaying}
                     bpm={currentTrack.bpm}
+                    heat={currentTrack.heat}
                     hookMode={hookMode}
                     hookStartSec={activeHookWindow.startSec}
                     hookEndSec={activeHookWindow.endSec}
@@ -3768,7 +4444,7 @@ export function PlayerBar({
 
                     <button
                       type="button"
-                      onClick={onPrev}
+                      onClick={handleManualPrev}
                       aria-label="Previous track"
                       className="flex h-11 w-11 items-center justify-center rounded-full bg-white/[0.06] border border-white/[0.09] text-slate-100 hover:text-white hover:bg-white/[0.12] transition-colors"
                     >
@@ -3790,7 +4466,7 @@ export function PlayerBar({
 
                     <button
                       type="button"
-                      onClick={onNext}
+                      onClick={handleManualNext}
                       aria-label="Next track"
                       className="flex h-11 w-11 items-center justify-center rounded-full bg-white/[0.06] border border-white/[0.09] text-slate-100 hover:text-white hover:bg-white/[0.12] transition-colors"
                     >
@@ -3815,65 +4491,108 @@ export function PlayerBar({
                     </button>
                   </div>
 
-                  {/* Full | Hook Segmented Pill Switch Centered Below Play/Pause */}
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={hookMode}
-                    aria-label={
-                      hookMode
-                        ? 'Hook Mode active. Switch to Full Song'
-                        : 'Full Song active. Switch to Hook Mode'
-                    }
-                    onClick={handleToggleHookMode}
-                    className={`gg-hook-switch group relative inline-flex h-8 items-center rounded-full p-[3px] bg-[#070815] border transition-all duration-200 shadow-[inset_0_2px_6px_rgba(0,0,0,0.85)] shrink-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-400 ${
-                      hookMode
-                        ? 'is-hook border-violet-400/50 shadow-[inset_0_2px_6px_rgba(0,0,0,0.85),0_0_18px_-4px_rgba(139,92,246,0.55)]'
-                        : 'border-white/[0.12] hover:border-violet-400/35'
-                    }`}
-                  >
-                    <span className="relative grid grid-cols-2 items-center">
-                      <span
-                        aria-hidden="true"
-                        className={`pointer-events-none absolute inset-y-0 left-0 w-1/2 rounded-full transition-all duration-200 ease-out ${
-                          hookMode
-                            ? 'translate-x-full bg-gradient-to-r from-violet-600 to-blue-500 border border-violet-300/40 shadow-[0_0_12px_rgba(139,92,246,0.55)]'
-                            : 'translate-x-0 bg-white/[0.13] border border-white/[0.18] shadow-sm'
-                        }`}
-                      />
-                      <span
-                        className={`relative z-10 inline-flex items-center justify-center gap-1.5 px-3.5 py-0.5 text-xs font-semibold tracking-tight whitespace-nowrap transition-colors duration-200 ${
-                          !hookMode
-                            ? 'text-white'
-                            : 'text-slate-400 group-hover:text-slate-200'
-                        }`}
-                      >
+                  {/* Full | Hook Segmented Switch + DJ Mode Auto-Crossfade Toggle */}
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={hookMode}
+                      aria-label={
+                        hookMode
+                          ? 'Hook Mode active. Switch to Full Song'
+                          : 'Full Song active. Switch to Hook Mode'
+                      }
+                      onClick={handleToggleHookMode}
+                      className={`gg-hook-switch group relative inline-flex h-8 items-center rounded-full p-[3px] bg-[#070815] border transition-all duration-200 shadow-[inset_0_2px_6px_rgba(0,0,0,0.85)] shrink-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-400 ${
+                        hookMode
+                          ? 'is-hook border-violet-400/50 shadow-[inset_0_2px_6px_rgba(0,0,0,0.85),0_0_18px_-4px_rgba(139,92,246,0.55)]'
+                          : 'border-white/[0.12] hover:border-violet-400/35'
+                      }`}
+                    >
+                      <span className="relative grid grid-cols-2 items-center">
                         <span
                           aria-hidden="true"
-                          className={`h-1.5 w-1.5 rounded-full transition-colors ${
-                            !hookMode
-                              ? 'bg-blue-400 shadow-[0_0_6px_rgba(96,165,250,0.9)]'
-                              : 'bg-slate-600'
+                          className={`pointer-events-none absolute inset-y-0 left-0 w-1/2 rounded-full transition-all duration-200 ease-out ${
+                            hookMode
+                              ? 'translate-x-full bg-gradient-to-r from-violet-600 to-blue-500 border border-violet-300/40 shadow-[0_0_12px_rgba(139,92,246,0.55)]'
+                              : 'translate-x-0 bg-white/[0.13] border border-white/[0.18] shadow-sm'
                           }`}
                         />
-                        <span>Full</span>
+                        <span
+                          className={`relative z-10 inline-flex items-center justify-center gap-1.5 px-3.5 py-0.5 text-xs font-semibold tracking-tight whitespace-nowrap transition-colors duration-200 ${
+                            !hookMode
+                              ? 'text-white'
+                              : 'text-slate-400 group-hover:text-slate-200'
+                          }`}
+                        >
+                          <span
+                            aria-hidden="true"
+                            className={`h-1.5 w-1.5 rounded-full transition-colors ${
+                              !hookMode
+                                ? 'bg-blue-400 shadow-[0_0_6px_rgba(96,165,250,0.9)]'
+                                : 'bg-slate-600'
+                            }`}
+                          />
+                          <span>Full</span>
+                        </span>
+                        <span
+                          className={`relative z-10 inline-flex items-center justify-center gap-1.5 px-3.5 py-0.5 text-xs font-semibold tracking-tight whitespace-nowrap transition-colors duration-200 ${
+                            hookMode
+                              ? 'text-white'
+                              : 'text-slate-400 group-hover:text-slate-200'
+                          }`}
+                        >
+                          <Scissors
+                            className={`w-3 h-3 transition-colors ${
+                              hookMode ? 'text-white' : 'text-violet-300/75'
+                            }`}
+                          />
+                          <span>Hook</span>
+                        </span>
                       </span>
-                      <span
-                        className={`relative z-10 inline-flex items-center justify-center gap-1.5 px-3.5 py-0.5 text-xs font-semibold tracking-tight whitespace-nowrap transition-colors duration-200 ${
-                          hookMode
-                            ? 'text-white'
-                            : 'text-slate-400 group-hover:text-slate-200'
+                    </button>
+
+                    {onChangeCrossfadeSettings ? (
+                      <button
+                        type="button"
+                        aria-pressed={crossfadeSettings.djMode}
+                        onClick={() =>
+                          onChangeCrossfadeSettings({
+                            ...crossfadeSettings,
+                            djMode: !crossfadeSettings.djMode,
+                          })
+                        }
+                        title={
+                          crossfadeSettings.djMode
+                            ? `DJ Mode enabled (${crossfadeSettings.djCrossfadeSec}s automatic blend)`
+                            : `Standard automatic crossfade (${crossfadeSettings.crossfadeSec}s). Click for extended DJ Mode.`
+                        }
+                        className={`inline-flex h-8 items-center gap-1.5 px-3 rounded-full border text-xs font-semibold tracking-tight whitespace-nowrap transition-all duration-200 shrink-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-400 ${
+                          crossfadeSettings.djMode
+                            ? 'bg-gradient-to-r from-violet-600/35 to-cyan-500/30 border-cyan-400/50 text-white shadow-[0_0_16px_-4px_rgba(34,211,238,0.5)]'
+                            : 'bg-[#070815] border-white/[0.12] text-slate-300 hover:text-white hover:border-violet-400/35'
                         }`}
                       >
-                        <Scissors
-                          className={`w-3 h-3 transition-colors ${
-                            hookMode ? 'text-white' : 'text-violet-300/75'
+                        <Disc3
+                          className={`w-3.5 h-3.5 ${
+                            crossfadeSettings.djMode
+                              ? 'text-cyan-300 animate-spin'
+                              : 'text-violet-300/80'
                           }`}
+                          style={
+                            crossfadeSettings.djMode
+                              ? { animationDuration: '3s' }
+                              : undefined
+                          }
                         />
-                        <span>Hook</span>
-                      </span>
-                    </span>
-                  </button>
+                        <span>
+                          {crossfadeSettings.djMode
+                            ? `DJ · ${crossfadeSettings.djCrossfadeSec}s`
+                            : `Auto · ${crossfadeSettings.crossfadeSec}s`}
+                        </span>
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
 
                 {/* 5. Glass Volume Bar (Visible on Desktop only; hidden on mobile where volume is locked at 100%) */}
@@ -3979,7 +4698,7 @@ export function PlayerBar({
 
                       <button
                         type="button"
-                        onClick={onNext}
+                        onClick={handleManualNext}
                         aria-label={`Play next track: ${nextTrackPreview.title}`}
                         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-slate-200 hover:text-white hover:bg-violet-500/30 transition-colors"
                       >
@@ -4527,7 +5246,7 @@ export function PlayerBar({
 
               <button
                 type="button"
-                onClick={onPrev}
+                onClick={handleManualPrev}
                 aria-label="Previous track"
                 className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/[0.05] text-slate-200 hover:text-white hover:bg-white/[0.1] transition-colors"
               >
@@ -4549,7 +5268,7 @@ export function PlayerBar({
 
               <button
                 type="button"
-                onClick={onNext}
+                onClick={handleManualNext}
                 aria-label="Next track"
                 className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/[0.05] text-slate-200 hover:text-white hover:bg-white/[0.1] transition-colors"
               >
@@ -4912,7 +5631,7 @@ export function PlayerBar({
 
               <button
                 type="button"
-                onClick={onPrev}
+                onClick={handleManualPrev}
                 aria-label="Previous track"
                 className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.05] text-slate-200 hover:text-white"
               >
@@ -4940,7 +5659,7 @@ export function PlayerBar({
 
               <button
                 type="button"
-                onClick={onNext}
+                onClick={handleManualNext}
                 aria-label="Next track"
                 className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.05] text-slate-200 hover:text-white"
               >

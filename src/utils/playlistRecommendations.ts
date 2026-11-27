@@ -545,14 +545,27 @@ export function getSmartPlaylistRecommendations(params: {
     if (is90sPlaylist) {
       if (
         candidate.year <= 2005 ||
-        /90s|retro|evergreen|cassette|golden/i.test(candMetaText)
+        /80s?|90s?|retro|classic|evergreen|cassette|golden/i.test(candMetaText)
       ) {
         score += 18;
-        if (!reasons.some((r) => r.includes('90s'))) {
-          reasons.push('90s cassette era');
+        if (!reasons.some((r) => r.includes('Retro'))) {
+          reasons.push('Retro Classics era');
         }
       } else if (candidate.year >= 2018) {
         score -= 18;
+      }
+    }
+
+    if (playlist.id === 'party-dj-hits') {
+      if (/\b(dj|party|club|remix|dance|bhangra)\b/i.test(candMetaText)) {
+        score += 16;
+      } else if (
+        /\b(2\s*am|lofi|lo-fi|hurt|pain|heartbreak|ghazal|sufi|sad|unplugged)\b/i.test(
+          candMetaText
+        ) ||
+        candBpm < 88
+      ) {
+        score -= 26;
       }
     }
 
