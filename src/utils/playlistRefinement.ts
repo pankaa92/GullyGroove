@@ -60,13 +60,19 @@ export function refineTrackPlaylistIds(track: Track): string[] {
     ids.add('90s-hindi-classics');
   }
 
+  const isDevotionalText = DEVOTIONAL_REGEX.test(`${title} ${genre}`);
+  const isDevotionalTrack = isDevotionalText || ids.has('bhakti-bhajan-aarti');
+
   // Rule 3: Remove slow/2AM/Lofi/Ghazal/Sufi/soft Love Mashup misfits from Party and DJ Hits
   const isSlowMood =
     SLOW_MOOD_MISFIT_REGEX.test(`${title} ${genre}`) ||
     genre.toLowerCase() === 'love mashup';
   if (isSlowMood && !isExplicitDjOrParty) {
     ids.delete('party-dj-hits');
-    if (/\b(2\s*am|lofi|lo-fi|hurt|pain|heartbreak)\b/i.test(`${title} ${genre}`)) {
+    if (
+      !isDevotionalTrack &&
+      /\b(2\s*am|lofi|lo-fi|hurt|pain|heartbreak)\b/i.test(`${title} ${genre}`)
+    ) {
       ids.add('2am-playlist');
     } else if (/\b(ghazal|sufi)\b/i.test(`${title} ${genre}`)) {
       ids.add('evening-daru-playlist');
@@ -80,7 +86,7 @@ export function refineTrackPlaylistIds(track: Track): string[] {
   if (lang.includes('bhojpuri')) {
     ids.add('bhojpuri-hits');
   }
-  if (DEVOTIONAL_REGEX.test(`${title} ${genre}`) && !isExplicitDjOrParty) {
+  if (isDevotionalText && !isExplicitDjOrParty) {
     ids.add('bhakti-bhajan-aarti');
   }
 

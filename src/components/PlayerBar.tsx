@@ -3,12 +3,10 @@ import {
   ChevronDown,
   ChevronUp,
   Clock,
-  Disc3,
   ExternalLink,
   Heart,
   History,
   ListMusic,
-  Loader2,
   Maximize2,
   Music2,
   Pause,
@@ -260,7 +258,6 @@ export function PlayerBar({
   onVolumeChange,
   onMutedChange,
   onHookModeChange,
-  onChangeCrossfadeSettings,
 }: PlayerBarProps) {
   // Dual HTML5 Audio Decks + Background Audio-Focus Keep-Alive Deck
   const deck0Ref = useRef<HTMLAudioElement | null>(null);
@@ -3063,7 +3060,7 @@ export function PlayerBar({
     const timer = window.setTimeout(() => {
       preloadIdleDeckForTrack(currentTrack);
       precueStandbyYtForTrack(currentTrack);
-    }, 600);
+    }, 250);
     return () => window.clearTimeout(timer);
   }, [
     currentTrack?.id,
@@ -3979,11 +3976,9 @@ export function PlayerBar({
                 <span className="text-blue-300 truncate">
                   {crossfadeStatus
                     ? `Crossfading · ${crossfadeStatus.remainingSec}s`
-                    : ytBuffering
-                      ? 'Loading Stream'
-                      : isPlaying
-                        ? 'Now Playing'
-                        : 'Paused'}
+                    : isPlaying
+                      ? 'Now Playing'
+                      : 'Paused'}
                 </span>
                 {nextTrackPreview ? (
                   <>
@@ -4042,18 +4037,18 @@ export function PlayerBar({
 
           <div
             ref={ytHost0Ref}
-            className={`absolute inset-0 w-full h-full transition-opacity duration-700 ${
+            className={`absolute inset-0 w-full h-full transition-opacity duration-500 ${
               (visualCrossfadeYtIdx ?? activeYtDeckIdx) === 0 &&
-              !(isCurrentYouTube && ytAdActiveState && !crossfadeStatus)
+              !(isCurrentYouTube && isPlaying && (ytBuffering || ytAdActiveState) && !crossfadeStatus)
                 ? `${ytDockedInsideConsole ? 'opacity-[0.88] group-hover:opacity-100' : 'opacity-100'} z-[2]`
                 : 'opacity-0 z-[1] pointer-events-none'
             }`}
           />
           <div
             ref={ytHost1Ref}
-            className={`absolute inset-0 w-full h-full transition-opacity duration-700 ${
+            className={`absolute inset-0 w-full h-full transition-opacity duration-500 ${
               (visualCrossfadeYtIdx ?? activeYtDeckIdx) === 1 &&
-              !(isCurrentYouTube && ytAdActiveState && !crossfadeStatus)
+              !(isCurrentYouTube && isPlaying && (ytBuffering || ytAdActiveState) && !crossfadeStatus)
                 ? `${ytDockedInsideConsole ? 'opacity-[0.88] group-hover:opacity-100' : 'opacity-100'} z-[2]`
                 : 'opacity-0 z-[1] pointer-events-none'
             }`}
@@ -4065,15 +4060,6 @@ export function PlayerBar({
               aria-hidden="true"
               className="pointer-events-none absolute inset-0 z-[4] bg-gradient-to-t from-[#080915]/60 via-[#080915]/15 to-[#080915]/30 transition-opacity duration-200 group-hover:opacity-45"
             />
-          ) : null}
-
-          {isCurrentYouTube && isPlaying && (ytBuffering || ytAdActiveState) ? (
-            <div className="absolute inset-0 z-[15] flex flex-col items-center justify-center gap-2 bg-black/55 backdrop-blur-[2px] pointer-events-none">
-              <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
-              <span className="text-[11px] font-medium text-slate-200">
-                {ytAdActiveState ? 'Skipping ad break...' : 'Loading stream...'}
-              </span>
-            </div>
           ) : null}
 
           {/* Transparent Click Shield (tap to Play/Pause) with Bottom-Right Skip-Ad Passthrough Cutout */}
@@ -4491,7 +4477,7 @@ export function PlayerBar({
                     </button>
                   </div>
 
-                  {/* Full | Hook Segmented Switch + DJ Mode Auto-Crossfade Toggle */}
+                  {/* Full | Hook Segmented Switch (DJ crossfade timing configured in Settings) */}
                   <div className="flex flex-wrap items-center justify-center gap-2">
                     <button
                       type="button"
@@ -4551,47 +4537,6 @@ export function PlayerBar({
                         </span>
                       </span>
                     </button>
-
-                    {onChangeCrossfadeSettings ? (
-                      <button
-                        type="button"
-                        aria-pressed={crossfadeSettings.djMode}
-                        onClick={() =>
-                          onChangeCrossfadeSettings({
-                            ...crossfadeSettings,
-                            djMode: !crossfadeSettings.djMode,
-                          })
-                        }
-                        title={
-                          crossfadeSettings.djMode
-                            ? `DJ Mode enabled (${crossfadeSettings.djCrossfadeSec}s automatic blend)`
-                            : `Standard automatic crossfade (${crossfadeSettings.crossfadeSec}s). Click for extended DJ Mode.`
-                        }
-                        className={`inline-flex h-8 items-center gap-1.5 px-3 rounded-full border text-xs font-semibold tracking-tight whitespace-nowrap transition-all duration-200 shrink-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-400 ${
-                          crossfadeSettings.djMode
-                            ? 'bg-gradient-to-r from-violet-600/35 to-cyan-500/30 border-cyan-400/50 text-white shadow-[0_0_16px_-4px_rgba(34,211,238,0.5)]'
-                            : 'bg-[#070815] border-white/[0.12] text-slate-300 hover:text-white hover:border-violet-400/35'
-                        }`}
-                      >
-                        <Disc3
-                          className={`w-3.5 h-3.5 ${
-                            crossfadeSettings.djMode
-                              ? 'text-cyan-300 animate-spin'
-                              : 'text-violet-300/80'
-                          }`}
-                          style={
-                            crossfadeSettings.djMode
-                              ? { animationDuration: '3s' }
-                              : undefined
-                          }
-                        />
-                        <span>
-                          {crossfadeSettings.djMode
-                            ? `DJ · ${crossfadeSettings.djCrossfadeSec}s`
-                            : `Auto · ${crossfadeSettings.crossfadeSec}s`}
-                        </span>
-                      </button>
-                    ) : null}
                   </div>
                 </div>
 

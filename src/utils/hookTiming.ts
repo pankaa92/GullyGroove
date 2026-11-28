@@ -23,7 +23,7 @@ export const MANUAL_SWITCH_FADE_MS = 240;
 export const FULL_SONG_CUTOFF_LEAD_SEC = 5;
 export const DEFAULT_ENTRY_START_SEC = 25;
 
-const CROSSFADE_SETTINGS_STORAGE_KEY = 'gg_crossfade_settings_v1';
+const CROSSFADE_SETTINGS_STORAGE_KEY = 'gg_crossfade_settings_v2';
 
 export interface CrossfadeSettings {
   crossfadeSec: number;
@@ -33,7 +33,7 @@ export interface CrossfadeSettings {
 
 export const DEFAULT_CROSSFADE_SETTINGS: CrossfadeSettings = {
   crossfadeSec: CROSSFADE_DEFAULT_SEC,
-  djMode: false,
+  djMode: true,
   djCrossfadeSec: DJ_CROSSFADE_DEFAULT_SEC,
 };
 
@@ -44,7 +44,7 @@ export function clampCrossfadeSettings(
     typeof raw?.crossfadeSec === 'number' && Number.isFinite(raw.crossfadeSec)
       ? Math.max(CROSSFADE_MIN_SEC, Math.min(CROSSFADE_MAX_SEC, Math.round(raw.crossfadeSec)))
       : CROSSFADE_DEFAULT_SEC;
-  const djMode = Boolean(raw?.djMode);
+  const djMode = typeof raw?.djMode === 'boolean' ? raw.djMode : true;
   const djCrossfadeSec =
     typeof raw?.djCrossfadeSec === 'number' && Number.isFinite(raw.djCrossfadeSec)
       ? Math.max(DJ_CROSSFADE_MIN_SEC, Math.min(DJ_CROSSFADE_MAX_SEC, Math.round(raw.djCrossfadeSec)))

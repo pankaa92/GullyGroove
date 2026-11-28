@@ -11,7 +11,10 @@ import {
   interpretGroovyWithGemini,
   synthesizeGroovySpeechWav,
 } from './src/server/geminiClient';
-import { catalogService } from './src/server/providers/catalogService';
+import {
+  catalogService,
+  PRIVATE_PLAYLIST_ID,
+} from './src/server/providers/catalogService';
 import type { NewAuthorisedTrackInput } from './src/types/music';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -35,11 +38,40 @@ async function startServer() {
     const tracks = catalogService.filterLocalTracks({});
     const facets = catalogService.getFilterFacets();
     const providers = catalogService.getProviderStatuses();
+    res.setHeader('Cache-Control', 'no-store');
     res.json({
+      version: catalogService.getCatalogVersion(),
       playlists,
       tracks,
       facets,
       providers,
+    });
+  });
+
+  // Live Cross-User Shared Catalog Sync (SSE)
+  app.get('/api/catalog/events', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders?.();
+
+    const sendEvent = (event: string, data: unknown) => {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
+    sendEvent('connected', { version: catalogService.getCatalogVersion() });
+
+    const unsubscribe = catalogService.onCatalogChange((payload) => {
+      sendEvent('catalog-updated', payload);
+    });
+
+    const heartbeat = setInterval(() => {
+      res.write(': keepalive\n\n');
+    }, 25000);
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      unsubscribe();
     });
   });
 
@@ -216,6 +248,13 @@ async function startServer() {
       return;
     }
 
+    if (body.playlistId === PRIVATE_PLAYLIST_ID) {
+      res.status(400).json({
+        error: 'My Playlist is private to the owner and cannot be published to the shared catalog.',
+      });
+      return;
+    }
+
     const created = catalogService.addAuthorisedTrack({
       title: body.title,
       artist: body.artist,
@@ -231,6 +270,7 @@ async function startServer() {
     });
 
     res.status(201).json({
+      version: catalogService.getCatalogVersion(),
       track: created,
       playlists: catalogService.getPlaylists(),
       facets: catalogService.getFilterFacets(),
@@ -251,6 +291,12 @@ async function startServer() {
   });
 
   app.post('/api/playlists/:id/tracks', (req, res) => {
+    if (req.params.id === PRIVATE_PLAYLIST_ID) {
+      res.status(403).json({
+        error: 'My Playlist is private to its owner and is stored locally on your device.',
+      });
+      return;
+    }
     const { trackId, track } = req.body as { trackId?: string; track?: unknown };
     if (!trackId) {
       res.status(400).json({ error: 'trackId is required' });
@@ -266,6 +312,7 @@ async function startServer() {
       return;
     }
     res.json({
+      version: catalogService.getCatalogVersion(),
       track: updated,
       playlists: catalogService.getPlaylists(),
       facets: catalogService.getFilterFacets(),

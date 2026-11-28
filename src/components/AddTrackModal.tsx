@@ -259,7 +259,7 @@ export function AddTrackModal({
               >
                 {playlists.map((pl) => (
                   <option key={pl.id} value={pl.id}>
-                    {pl.title}
+                    {pl.title} ({pl.id === 'my-playlist' ? 'Private' : 'Shared'})
                   </option>
                 ))}
               </select>

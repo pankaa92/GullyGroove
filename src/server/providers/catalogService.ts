@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { COVER_ASSETS, INITIAL_PLAYLISTS, INITIAL_TRACKS } from '../../data/catalog';
 import type {
   NewAuthorisedTrackInput,
@@ -11,6 +13,8 @@ import { AudiusOpenProvider } from './audiusProvider';
 import { JamendoCcProvider } from './jamendoProvider';
 import { YoutubeDataProvider } from './youtubeProvider';
 
+export const PRIVATE_PLAYLIST_ID = 'my-playlist';
+
 const LEGACY_PLAYLIST_MAP: Record<string, string> = {
   'traveling-vibes': 'bus-driver-playlist',
   'evergreen-bollywood': '90s-hindi-classics',
@@ -21,6 +25,13 @@ const LEGACY_PLAYLIST_MAP: Record<string, string> = {
   'bollywood-romantic-hits': 'top-50-hindi',
 };
 
+const SHARED_STORE_PATH = path.resolve(process.cwd(), 'data', 'shared-catalog.json');
+
+interface PersistedSharedStore {
+  sharedTracks: Track[];
+  sharedAssignments: Record<string, string[]>;
+}
+
 function isFullLengthTrack(track: Track): boolean {
   if (track.playbackRights === 'preview-30s' || track.providerId === 'itunes-preview') {
     return false;
@@ -28,26 +39,141 @@ function isFullLengthTrack(track: Track): boolean {
   return track.durationSec === 0 || track.durationSec > 30;
 }
 
+function sanitizeSharedPlaylistIds(ids: string[] | undefined): string[] {
+  return Array.from(
+    new Set(
+      (ids || [])
+        .filter(
+          (id) =>
+            id !== PRIVATE_PLAYLIST_ID &&
+            id !== 'relaxing-music' &&
+            id !== 'gapless-playback' &&
+            id !== 'trending-international'
+        )
+        .map((id) => LEGACY_PLAYLIST_MAP[id] || id)
+    )
+  );
+}
+
+type CatalogChangeListener = (event: {
+  version: number;
+  playlistId?: string;
+  trackId?: string;
+}) => void;
+
 class CatalogService {
   private tracks: Track[] = INITIAL_TRACKS.filter(isFullLengthTrack).map((t) => ({
     ...t,
-    playlistIds: Array.from(
-      new Set(
-        t.playlistIds
-          .filter(
-            (id) =>
-              id !== 'relaxing-music' &&
-              id !== 'gapless-playback' &&
-              id !== 'trending-international'
-          )
-          .map((id) => LEGACY_PLAYLIST_MAP[id] || id)
-      )
-    ),
+    playlistIds: sanitizeSharedPlaylistIds(t.playlistIds),
   }));
   private playlists = [...INITIAL_PLAYLISTS];
+  private sharedTracks: Track[] = [];
+  private sharedAssignments: Record<string, string[]> = {};
+  private catalogVersion = 1;
+  private changeListeners = new Set<CatalogChangeListener>();
   private audius = new AudiusOpenProvider();
   private youtube = new YoutubeDataProvider();
   private jamendo = new JamendoCcProvider();
+
+  constructor() {
+    this.loadPersistedSharedStore();
+  }
+
+  private loadPersistedSharedStore(): void {
+    try {
+      if (!fs.existsSync(SHARED_STORE_PATH)) return;
+      const raw = fs.readFileSync(SHARED_STORE_PATH, 'utf8');
+      const parsed = JSON.parse(raw) as Partial<PersistedSharedStore>;
+      const validPlaylistIds = new Set(
+        this.playlists
+          .filter((p) => p.id !== PRIVATE_PLAYLIST_ID)
+          .map((p) => p.id)
+      );
+
+      if (Array.isArray(parsed.sharedTracks)) {
+        for (const item of parsed.sharedTracks) {
+          if (!item || !item.id || !item.title || !isFullLengthTrack(item)) continue;
+          const cleanIds = sanitizeSharedPlaylistIds(item.playlistIds).filter((id) =>
+            validPlaylistIds.has(id)
+          );
+          if (cleanIds.length === 0) continue;
+          const normalized: Track = {
+            ...item,
+            playlistIds: cleanIds,
+          };
+          this.sharedTracks.push(normalized);
+          const existing = this.tracks.find((t) => t.id === normalized.id);
+          if (existing) {
+            existing.playlistIds = Array.from(
+              new Set([...existing.playlistIds, ...cleanIds])
+            );
+          } else {
+            this.tracks.unshift(normalized);
+          }
+        }
+      }
+
+      if (parsed.sharedAssignments && typeof parsed.sharedAssignments === 'object') {
+        for (const [trackId, rawIds] of Object.entries(parsed.sharedAssignments)) {
+          if (!Array.isArray(rawIds)) continue;
+          const cleanIds = sanitizeSharedPlaylistIds(rawIds).filter((id) =>
+            validPlaylistIds.has(id)
+          );
+          if (cleanIds.length === 0) continue;
+          this.sharedAssignments[trackId] = cleanIds;
+          const target = this.tracks.find((t) => t.id === trackId);
+          if (target) {
+            target.playlistIds = Array.from(
+              new Set([...target.playlistIds, ...cleanIds])
+            );
+          }
+        }
+      }
+    } catch {
+      // Ignore corrupt/unavailable persistence file and run with curated catalog
+    }
+  }
+
+  private persistSharedStore(): void {
+    try {
+      const dir = path.dirname(SHARED_STORE_PATH);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      const payload: PersistedSharedStore = {
+        sharedTracks: this.sharedTracks,
+        sharedAssignments: this.sharedAssignments,
+      };
+      const tmpPath = `${SHARED_STORE_PATH}.tmp`;
+      fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2), 'utf8');
+      fs.renameSync(tmpPath, SHARED_STORE_PATH);
+    } catch {
+      // Ignore disk persistence errors in read-only environments
+    }
+  }
+
+  private notifyCatalogChange(playlistId?: string, trackId?: string): void {
+    this.catalogVersion += 1;
+    const payload = { version: this.catalogVersion, playlistId, trackId };
+    for (const listener of this.changeListeners) {
+      try {
+        listener(payload);
+      } catch {
+        // ignore listener failures
+      }
+    }
+  }
+
+  getCatalogVersion(): number {
+    return this.catalogVersion;
+  }
+
+  onCatalogChange(listener: CatalogChangeListener): () => void {
+    this.changeListeners.add(listener);
+    return () => {
+      this.changeListeners.delete(listener);
+    };
+  }
 
   getProviderStatuses(): ProviderStatus[] {
     return [
@@ -85,6 +211,13 @@ class CatalogService {
 
   getPlaylists(): PlaylistWithStats[] {
     return this.playlists.map((pl) => {
+      if (pl.id === PRIVATE_PLAYLIST_ID) {
+        return {
+          ...pl,
+          trackCount: 0,
+          totalDurationSec: 0,
+        };
+      }
       const playlistTracks = this.tracks.filter((t) => t.playlistIds.includes(pl.id));
       const totalDurationSec = playlistTracks.reduce((acc, t) => acc + t.durationSec, 0);
       return {
@@ -101,6 +234,9 @@ class CatalogService {
   } {
     const found = this.getPlaylists().find((p) => p.id === playlistId || p.slug === playlistId);
     if (!found) return { playlist: null, tracks: [] };
+    if (found.id === PRIVATE_PLAYLIST_ID) {
+      return { playlist: found, tracks: [] };
+    }
     const matched = this.tracks.filter((t) => t.playlistIds.includes(found.id));
     const tracks = sequencePlaylistBajaoStyle(matched, { seedKey: found.id });
     return { playlist: found, tracks };
@@ -174,6 +310,10 @@ class CatalogService {
   }
 
   addAuthorisedTrack(input: NewAuthorisedTrackInput): Track {
+    const targetPlaylistId =
+      input.playlistId && input.playlistId !== PRIVATE_PLAYLIST_ID
+        ? input.playlistId
+        : 'top-50-hindi';
     const id = `vault-${Date.now().toString(36)}`;
     const newTrack: Track = {
       id,
@@ -193,15 +333,19 @@ class CatalogService {
       playbackRights: 'full-stream',
       streamUrl: input.streamUrl.trim(),
       attribution: input.attribution?.trim() || `${input.artist.trim()} (${input.licenseType})`,
-      playlistIds: Array.from(
-        new Set([input.playlistId || 'top-50-hindi'])
-      ),
+      playlistIds: [targetPlaylistId],
       plays: 1,
       isUserAdded: true,
     };
 
-    newTrack.playlistIds = refineTrackPlaylistIds(newTrack);
+    newTrack.playlistIds = Array.from(
+      new Set([...refineTrackPlaylistIds(newTrack), targetPlaylistId])
+    ).filter((pid) => pid !== PRIVATE_PLAYLIST_ID);
+
     this.tracks.unshift(newTrack);
+    this.sharedTracks.unshift(newTrack);
+    this.persistSharedStore();
+    this.notifyCatalogChange(targetPlaylistId, newTrack.id);
     return newTrack;
   }
 
@@ -209,6 +353,10 @@ class CatalogService {
     const idx = this.tracks.findIndex((t) => t.id === trackId && t.isUserAdded);
     if (idx === -1) return false;
     this.tracks.splice(idx, 1);
+    this.sharedTracks = this.sharedTracks.filter((t) => t.id !== trackId);
+    delete this.sharedAssignments[trackId];
+    this.persistSharedStore();
+    this.notifyCatalogChange(undefined, trackId);
     return true;
   }
 
@@ -217,23 +365,64 @@ class CatalogService {
     playlistId: string,
     discoveredTrack?: Track
   ): Track | null {
+    if (playlistId === PRIVATE_PLAYLIST_ID) {
+      return null;
+    }
+
     const playlist = this.playlists.find((p) => p.id === playlistId);
     if (!playlist) return null;
 
     let track = this.tracks.find((t) => t.id === trackId);
+    let addedNewGlobalTrack = false;
+
     if (!track && discoveredTrack && discoveredTrack.id === trackId) {
       if (!isFullLengthTrack(discoveredTrack)) return null;
+      const basePlaylistIds = sanitizeSharedPlaylistIds([
+        ...(discoveredTrack.playlistIds || []),
+        playlistId,
+      ]);
       track = {
         ...discoveredTrack,
-        playlistIds: Array.from(new Set(discoveredTrack.playlistIds || [])),
+        playlistIds: Array.from(
+          new Set([
+            ...refineTrackPlaylistIds({
+              ...discoveredTrack,
+              playlistIds: basePlaylistIds,
+            }),
+            playlistId,
+          ])
+        ).filter((pid) => pid !== PRIVATE_PLAYLIST_ID),
       };
       this.tracks.unshift(track);
+      this.sharedTracks.unshift(track);
+      addedNewGlobalTrack = true;
     }
     if (!track) return null;
 
+    let changed = addedNewGlobalTrack;
     if (!track.playlistIds.includes(playlistId)) {
       track.playlistIds.push(playlistId);
+      changed = true;
     }
+
+    const existingSharedTrack = this.sharedTracks.find((t) => t.id === track!.id);
+    if (existingSharedTrack) {
+      existingSharedTrack.playlistIds = Array.from(
+        new Set([...existingSharedTrack.playlistIds, ...track.playlistIds])
+      ).filter((pid) => pid !== PRIVATE_PLAYLIST_ID);
+    } else if (!addedNewGlobalTrack) {
+      const currentExtra = new Set(this.sharedAssignments[track.id] || []);
+      if (!currentExtra.has(playlistId)) {
+        currentExtra.add(playlistId);
+        this.sharedAssignments[track.id] = Array.from(currentExtra);
+      }
+    }
+
+    if (changed) {
+      this.persistSharedStore();
+      this.notifyCatalogChange(playlistId, track.id);
+    }
+
     return track;
   }
 

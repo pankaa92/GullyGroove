@@ -379,7 +379,11 @@ export function SettingsModal({
                                 : 'border-white/[0.08] bg-white/[0.03] text-slate-400 hover:text-white'
                           }`}
                         >
-                          {sec}s{!crossfadeSettings.djMode && sec === 8 ? ' · Default' : ''}
+                          {sec}s
+                          {(crossfadeSettings.djMode && sec === 12) ||
+                          (!crossfadeSettings.djMode && sec === 8)
+                            ? ' · Default'
+                            : ''}
                         </button>
                       );
                     }

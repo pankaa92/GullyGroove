@@ -1,4 +1,4 @@
-import { ExternalLink, Heart, Pause, Play, Plus } from 'lucide-react';
+import { ExternalLink, Globe, Heart, Lock, Pause, Play, Plus } from 'lucide-react';
 import { memo, useState } from 'react';
 import type { PlaylistWithStats, Track } from '../types/music';
 import { formatDuration, formatPlays } from '../utils/format';
@@ -169,7 +169,7 @@ export const TrackRow = memo(function TrackRow({
 
             {menuOpen ? (
               <div
-                className="absolute right-0 bottom-full mb-1 z-30 w-56 max-w-[calc(100vw-2rem)] rounded-xl bg-[#161621] border border-white/10 p-1.5 shadow-2xl"
+                className="absolute right-0 bottom-full mb-1 z-30 w-60 max-w-[calc(100vw-2rem)] rounded-xl bg-[#161621] border border-white/10 p-1.5 shadow-2xl"
                 onMouseLeave={() => setMenuOpen(false)}
               >
                 <p className="px-2.5 py-1.5 text-[11px] font-medium text-slate-400">
@@ -177,9 +177,10 @@ export const TrackRow = memo(function TrackRow({
                 </p>
                 <div className="max-h-48 overflow-y-auto space-y-0.5">
                   {playlists.map((pl) => {
+                    const isPrivate = pl.id === 'my-playlist';
                     const alreadyIn =
                       track.playlistIds.includes(pl.id) ||
-                      (pl.id === 'my-playlist' && isFavorite);
+                      (isPrivate && isFavorite);
                     return (
                       <button
                         key={pl.id}
@@ -189,9 +190,28 @@ export const TrackRow = memo(function TrackRow({
                           onAddToPlaylist(track.id, pl.id, track);
                           setMenuOpen(false);
                         }}
-                        className="w-full text-left px-2.5 py-2 sm:py-1.5 text-xs rounded-lg truncate transition-colors disabled:opacity-45 hover:bg-white/[0.06] text-slate-200"
+                        className="w-full flex items-center justify-between gap-2 text-left px-2.5 py-2 sm:py-1.5 text-xs rounded-lg transition-colors disabled:opacity-45 hover:bg-white/[0.06] text-slate-200"
                       >
-                        {alreadyIn ? `${pl.title} (Added)` : pl.title}
+                        <span className="truncate">
+                          {alreadyIn ? `${pl.title} (Added)` : pl.title}
+                        </span>
+                        <span
+                          className={`inline-flex items-center gap-1 shrink-0 text-[10px] font-medium ${
+                            isPrivate ? 'text-violet-300' : 'text-blue-300/80'
+                          }`}
+                        >
+                          {isPrivate ? (
+                            <>
+                              <Lock className="w-2.5 h-2.5" />
+                              Private
+                            </>
+                          ) : (
+                            <>
+                              <Globe className="w-2.5 h-2.5" />
+                              Shared
+                            </>
+                          )}
+                        </span>
                       </button>
                     );
                   })}

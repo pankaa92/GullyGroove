@@ -26,14 +26,29 @@ export interface SearchCatalogResult {
   facets: CatalogOverviewData['facets'];
 }
 
+export const PRIVATE_PLAYLIST_ID = 'my-playlist';
+
 const STATIC_TRACKS_KEY = 'gg_static_tracks_v1';
 const STATIC_ASSIGNMENTS_KEY = 'gg_static_assignments_v1';
+const PRIVATE_MY_PLAYLIST_TRACKS_KEY = 'gg_private_my_playlist_tracks_v1';
+const PRIVATE_MY_PLAYLIST_IDS_KEY = 'gg_private_my_playlist_ids_v1';
 
-let backendDetected: boolean | null = null;
+let confirmedStaticOnlyHost = false;
 
 function isJsonResponse(res: Response): boolean {
   const ct = res.headers.get('content-type') || '';
   return res.ok && ct.includes('application/json');
+}
+
+function checkStaticHostResponse(res: Response): void {
+  const ct = res.headers.get('content-type') || '';
+  if (res.status === 404 || (res.ok && ct.includes('text/html'))) {
+    confirmedStaticOnlyHost = true;
+  }
+}
+
+export function isServerSyncAvailable(): boolean {
+  return !confirmedStaticOnlyHost;
 }
 
 function toDirectAudiusStreamUrl(streamUrl: string): string {
@@ -60,6 +75,7 @@ function mapPlaylistIds(ids: string[]): string[] {
       ids
         .filter(
           (id) =>
+            id !== PRIVATE_PLAYLIST_ID &&
             id !== 'relaxing-music' &&
             id !== 'gapless-playback' &&
             id !== 'trending-international'
@@ -84,6 +100,57 @@ function isEligibleCatalogTrack(track: Track): boolean {
     return false;
   }
   return track.durationSec === 0 || track.durationSec > 30;
+}
+
+export function loadPrivateMyPlaylistTracks(): Track[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(PRIVATE_MY_PLAYLIST_TRACKS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as Track[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((t) => t && t.id && isEligibleCatalogTrack(t))
+      .map((t) => ({
+        ...t,
+        playlistIds: Array.from(new Set([...(t.playlistIds || []), PRIVATE_PLAYLIST_ID])),
+      }));
+  } catch {
+    return [];
+  }
+}
+
+export function savePrivateMyPlaylistTracks(tracks: Track[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(PRIVATE_MY_PLAYLIST_TRACKS_KEY, JSON.stringify(tracks));
+  } catch {
+    // ignore storage quota errors
+  }
+}
+
+export function loadPrivateMyPlaylistIds(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = window.localStorage.getItem(PRIVATE_MY_PLAYLIST_IDS_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw) as string[];
+    return Array.isArray(parsed) ? new Set(parsed) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+export function savePrivateMyPlaylistIds(ids: Set<string>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(
+      PRIVATE_MY_PLAYLIST_IDS_KEY,
+      JSON.stringify(Array.from(ids))
+    );
+  } catch {
+    // ignore storage quota errors
+  }
 }
 
 function readStoredTracks(): Track[] {
@@ -178,24 +245,24 @@ function getStaticProviders(): ProviderStatus[] {
       licensePolicy:
         'Plays exclusively through the official YouTube IFrame Player API, respecting YouTube playback policies.',
       description:
-        'Integrated dual-deck YouTube player with automatic 8-second crossfade transitions.',
+        'Integrated dual-deck YouTube player with automatic 12-second DJ crossfade transitions.',
       envKeysRequired: [],
     },
   ];
 }
 
 export async function fetchCatalogOverview(): Promise<CatalogOverviewData> {
-  if (backendDetected !== false) {
+  if (!confirmedStaticOnlyHost) {
     try {
-      const res = await fetch('/api/catalog/overview');
+      const res = await fetch('/api/catalog/overview', { cache: 'no-store' });
       if (isJsonResponse(res)) {
-        backendDetected = true;
+        confirmedStaticOnlyHost = false;
         return (await res.json()) as CatalogOverviewData;
       }
+      checkStaticHostResponse(res);
     } catch {
-      // Static hosting fallback (GitHub Pages)
+      // Transient error or offline; fall through to static catalog
     }
-    backendDetected = false;
   }
 
   const tracks = getStaticTracks();
@@ -289,7 +356,7 @@ export async function searchCatalog(
   includeExternal: boolean,
   signal?: AbortSignal
 ): Promise<SearchCatalogResult> {
-  if (backendDetected !== false) {
+  if (!confirmedStaticOnlyHost) {
     try {
       const params = new URLSearchParams({
         query: filters.query || '',
@@ -300,15 +367,17 @@ export async function searchCatalog(
         providerId: filters.providerId || 'all',
         includeExternal: includeExternal ? 'true' : 'false',
       });
-      const res = await fetch(`/api/tracks?${params.toString()}`, { signal });
+      const res = await fetch(`/api/tracks?${params.toString()}`, {
+        signal,
+        cache: 'no-store',
+      });
       if (isJsonResponse(res)) {
-        backendDetected = true;
         return (await res.json()) as SearchCatalogResult;
       }
+      checkStaticHostResponse(res);
     } catch (err) {
       if ((err as Error).name === 'AbortError') throw err;
     }
-    backendDetected = false;
   }
 
   const allTracks = getStaticTracks();
@@ -346,16 +415,52 @@ export async function searchCatalog(
   };
 }
 
+export interface AssignPlaylistResult {
+  scope: 'private' | 'shared';
+  track: Track;
+  playlists?: PlaylistWithStats[];
+  facets?: CatalogOverviewData['facets'];
+}
+
 export async function assignTrackToPlaylist(
   playlistId: string,
   trackId: string,
-  discoveredTrack?: Track
-): Promise<{
-  track: Track;
-  playlists: PlaylistWithStats[];
-  facets: CatalogOverviewData['facets'];
-} | null> {
-  if (backendDetected !== false) {
+  discoveredTrack?: Track,
+  existingSharedTracks: Track[] = []
+): Promise<AssignPlaylistResult | null> {
+  // My Playlist is strictly private to the owner's browser — never upload to the shared server
+  if (playlistId === PRIVATE_PLAYLIST_ID) {
+    const privateIds = loadPrivateMyPlaylistIds();
+    privateIds.add(trackId);
+    savePrivateMyPlaylistIds(privateIds);
+
+    const existingShared = existingSharedTracks.find((t) => t.id === trackId);
+    if (existingShared) {
+      return {
+        scope: 'private',
+        track: existingShared,
+      };
+    }
+
+    const privateTracks = loadPrivateMyPlaylistTracks();
+    let privateTrack = privateTracks.find((t) => t.id === trackId);
+    if (!privateTrack && discoveredTrack && discoveredTrack.id === trackId) {
+      if (!isEligibleCatalogTrack(discoveredTrack)) return null;
+      privateTrack = {
+        ...discoveredTrack,
+        playlistIds: [PRIVATE_PLAYLIST_ID],
+      };
+      savePrivateMyPlaylistTracks([privateTrack, ...privateTracks]);
+    }
+    if (!privateTrack) return null;
+    return {
+      scope: 'private',
+      track: privateTrack,
+    };
+  }
+
+  // All other playlists are shared globally across all GullyGroove users
+  if (!confirmedStaticOnlyHost) {
     try {
       const res = await fetch(`/api/playlists/${encodeURIComponent(playlistId)}/tracks`, {
         method: 'POST',
@@ -363,17 +468,20 @@ export async function assignTrackToPlaylist(
         body: JSON.stringify({ trackId, track: discoveredTrack }),
       });
       if (isJsonResponse(res)) {
-        backendDetected = true;
-        return (await res.json()) as {
+        const data = (await res.json()) as {
           track: Track;
           playlists: PlaylistWithStats[];
           facets: CatalogOverviewData['facets'];
         };
+        return {
+          scope: 'shared',
+          ...data,
+        };
       }
+      checkStaticHostResponse(res);
     } catch {
-      // Static fallback
+      // Static fallback below
     }
-    backendDetected = false;
   }
 
   const stored = readStoredTracks();
@@ -383,7 +491,12 @@ export async function assignTrackToPlaylist(
   let targetTrack = existingLocal;
   if (!targetTrack && discoveredTrack && discoveredTrack.id === trackId) {
     if (!isEligibleCatalogTrack(discoveredTrack)) return null;
-    targetTrack = normalizeStaticTrack(discoveredTrack);
+    targetTrack = {
+      ...normalizeStaticTrack(discoveredTrack),
+      playlistIds: Array.from(
+        new Set([...refineTrackPlaylistIds(discoveredTrack), playlistId])
+      ).filter((pid) => pid !== PRIVATE_PLAYLIST_ID),
+    };
     stored.unshift(targetTrack);
     try {
       localStorage.setItem(STATIC_TRACKS_KEY, JSON.stringify(stored));
@@ -395,7 +508,7 @@ export async function assignTrackToPlaylist(
 
   const updatedPlaylists = Array.from(
     new Set([...(targetTrack.playlistIds || []), playlistId])
-  );
+  ).filter((pid) => pid !== PRIVATE_PLAYLIST_ID);
   assignments[trackId] = updatedPlaylists;
   try {
     localStorage.setItem(STATIC_ASSIGNMENTS_KEY, JSON.stringify(assignments));
@@ -410,6 +523,7 @@ export async function assignTrackToPlaylist(
   };
 
   return {
+    scope: 'shared',
     track: updatedTrack,
     playlists: buildStaticPlaylists(allTracks),
     facets: buildFacets(allTracks),
@@ -417,11 +531,46 @@ export async function assignTrackToPlaylist(
 }
 
 export async function createVaultTrack(input: NewAuthorisedTrackInput): Promise<{
+  scope: 'private' | 'shared';
   track: Track;
-  playlists: PlaylistWithStats[];
-  facets: CatalogOverviewData['facets'];
+  playlists?: PlaylistWithStats[];
+  facets?: CatalogOverviewData['facets'];
 }> {
-  if (backendDetected !== false) {
+  if (input.playlistId === PRIVATE_PLAYLIST_ID) {
+    const created: Track = {
+      id: `vault-priv-${Date.now().toString(36)}`,
+      title: input.title.trim(),
+      artist: input.artist.trim(),
+      album: input.album.trim() || 'Independent Release',
+      genre: input.genre.trim() || 'Indipop',
+      language: input.language.trim() || 'Hindi',
+      durationSec: Math.max(31, Math.min(Number(input.durationSec) || 218, 3600)),
+      bpm: 108,
+      year: 2026,
+      coverUrl: input.coverUrl?.trim() || COVER_ASSETS.heroStage,
+      providerId: 'user-vault',
+      providerName: 'Private Media Vault',
+      licenseType: input.licenseType || 'Royalty-Free Studio',
+      licenseSummary: `Saved privately in your My Playlist (${input.licenseType}).`,
+      playbackRights: 'full-stream',
+      streamUrl: input.streamUrl.trim(),
+      attribution: input.attribution?.trim() || `${input.artist.trim()} (${input.licenseType})`,
+      playlistIds: [PRIVATE_PLAYLIST_ID],
+      plays: 1,
+      isUserAdded: true,
+    };
+    const privateTracks = loadPrivateMyPlaylistTracks();
+    savePrivateMyPlaylistTracks([created, ...privateTracks]);
+    const privateIds = loadPrivateMyPlaylistIds();
+    privateIds.add(created.id);
+    savePrivateMyPlaylistIds(privateIds);
+    return {
+      scope: 'private',
+      track: created,
+    };
+  }
+
+  if (!confirmedStaticOnlyHost) {
     try {
       const res = await fetch('/api/vault/tracks', {
         method: 'POST',
@@ -429,19 +578,23 @@ export async function createVaultTrack(input: NewAuthorisedTrackInput): Promise<
         body: JSON.stringify(input),
       });
       if (isJsonResponse(res)) {
-        backendDetected = true;
-        return (await res.json()) as {
+        const data = (await res.json()) as {
           track: Track;
           playlists: PlaylistWithStats[];
           facets: CatalogOverviewData['facets'];
         };
+        return {
+          scope: 'shared',
+          ...data,
+        };
       }
+      checkStaticHostResponse(res);
     } catch {
       // Static fallback
     }
-    backendDetected = false;
   }
 
+  const targetPid = input.playlistId || 'top-50-hindi';
   const created: Track = {
     id: `vault-${Date.now().toString(36)}`,
     title: input.title.trim(),
@@ -460,13 +613,13 @@ export async function createVaultTrack(input: NewAuthorisedTrackInput): Promise<
     playbackRights: 'full-stream',
     streamUrl: input.streamUrl.trim(),
     attribution: input.attribution?.trim() || `${input.artist.trim()} (${input.licenseType})`,
-    playlistIds: Array.from(
-      new Set([input.playlistId || 'top-50-hindi'])
-    ),
+    playlistIds: [targetPid],
     plays: 1,
     isUserAdded: true,
   };
-  created.playlistIds = refineTrackPlaylistIds(created);
+  created.playlistIds = Array.from(
+    new Set([...refineTrackPlaylistIds(created), targetPid])
+  ).filter((pid) => pid !== PRIVATE_PLAYLIST_ID);
 
   const stored = readStoredTracks();
   stored.unshift(created);
@@ -478,6 +631,7 @@ export async function createVaultTrack(input: NewAuthorisedTrackInput): Promise<
 
   const allTracks = getStaticTracks();
   return {
+    scope: 'shared',
     track: created,
     playlists: buildStaticPlaylists(allTracks),
     facets: buildFacets(allTracks),
@@ -485,25 +639,35 @@ export async function createVaultTrack(input: NewAuthorisedTrackInput): Promise<
 }
 
 export async function removeVaultTrack(trackId: string): Promise<{
-  playlists: PlaylistWithStats[];
-  facets: CatalogOverviewData['facets'];
+  scope: 'private' | 'shared';
+  playlists?: PlaylistWithStats[];
+  facets?: CatalogOverviewData['facets'];
 } | null> {
-  if (backendDetected !== false) {
+  const privateTracks = loadPrivateMyPlaylistTracks();
+  if (privateTracks.some((t) => t.id === trackId)) {
+    savePrivateMyPlaylistTracks(privateTracks.filter((t) => t.id !== trackId));
+    const privateIds = loadPrivateMyPlaylistIds();
+    privateIds.delete(trackId);
+    savePrivateMyPlaylistIds(privateIds);
+    return { scope: 'private' };
+  }
+
+  if (!confirmedStaticOnlyHost) {
     try {
       const res = await fetch(`/api/vault/tracks/${encodeURIComponent(trackId)}`, {
         method: 'DELETE',
       });
       if (isJsonResponse(res)) {
-        backendDetected = true;
-        return (await res.json()) as {
+        const data = (await res.json()) as {
           playlists: PlaylistWithStats[];
           facets: CatalogOverviewData['facets'];
         };
+        return { scope: 'shared', ...data };
       }
+      checkStaticHostResponse(res);
     } catch {
       // Static fallback
     }
-    backendDetected = false;
   }
 
   const stored = readStoredTracks().filter((t) => !(t.id === trackId && t.isUserAdded));
@@ -514,13 +678,14 @@ export async function removeVaultTrack(trackId: string): Promise<{
   }
   const allTracks = getStaticTracks();
   return {
+    scope: 'shared',
     playlists: buildStaticPlaylists(allTracks),
     facets: buildFacets(allTracks),
   };
 }
 
 export function recordTrackPlay(trackId: string): void {
-  if (backendDetected === false) return;
+  if (confirmedStaticOnlyHost) return;
   fetch(`/api/tracks/${encodeURIComponent(trackId)}/play`, { method: 'POST' }).catch(
     () => {}
   );
@@ -555,7 +720,7 @@ export async function submitSongRequest(input: {
   const mailtoUrl = buildSongRequestMailto(songName, feedback);
 
   let serverRecorded = false;
-  if (backendDetected !== false) {
+  if (!confirmedStaticOnlyHost) {
     try {
       const res = await fetch('/api/song-requests', {
         method: 'POST',
@@ -563,7 +728,6 @@ export async function submitSongRequest(input: {
         body: JSON.stringify({ songName, feedback }),
       });
       if (isJsonResponse(res)) {
-        backendDetected = true;
         const data = (await res.json()) as {
           ok?: boolean;
           error?: string;
@@ -581,6 +745,8 @@ export async function submitSongRequest(input: {
           };
         }
         serverRecorded = Boolean(data.ok);
+      } else {
+        checkStaticHostResponse(res);
       }
     } catch (err) {
       if (err instanceof Error && err.message.startsWith('Please enter')) {

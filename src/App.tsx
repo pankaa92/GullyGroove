@@ -3,14 +3,16 @@ import {
   AudioLines,
   Compass,
   FolderPlus,
+  Globe,
   Library,
+  Lock,
   Music2,
   Play,
   Search,
   Settings,
   Shuffle,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AddTrackModal } from './components/AddTrackModal';
 import { ArtworkImage } from './components/ArtworkImage';
 import { BrandLogo } from './components/BrandLogo';
@@ -34,8 +36,13 @@ import {
   assignTrackToPlaylist,
   createVaultTrack,
   fetchCatalogOverview,
+  isServerSyncAvailable,
+  loadPrivateMyPlaylistIds,
+  loadPrivateMyPlaylistTracks,
+  PRIVATE_PLAYLIST_ID,
   recordTrackPlay,
   removeVaultTrack,
+  savePrivateMyPlaylistIds,
 } from './services/clientCatalog';
 import type {
   NewAuthorisedTrackInput,
@@ -182,7 +189,7 @@ export default function App() {
     return [];
   });
 
-  // Favorites & Modals
+  // Favorites, Private My Playlist & Modals
   const [favorites, setFavorites] = useState<Set<string>>(() => {
     try {
       const saved = localStorage.getItem('gg_favorites');
@@ -192,6 +199,18 @@ export default function App() {
     }
     return new Set(['gg-01', 'gg-02', 'gg-07']);
   });
+  const [privateMyPlaylistTracks, setPrivateMyPlaylistTracks] = useState<Track[]>(() =>
+    loadPrivateMyPlaylistTracks()
+  );
+  const [privateMyPlaylistIds, setPrivateMyPlaylistIds] = useState<Set<string>>(() =>
+    loadPrivateMyPlaylistIds()
+  );
+  const [catalogNotice, setCatalogNotice] = useState<{
+    id: number;
+    text: string;
+    scope: 'private' | 'shared';
+  } | null>(null);
+  const lastSilentSyncRef = useRef<number>(0);
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [requestModalOpen, setRequestModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -289,6 +308,31 @@ export default function App() {
     }
   }, [currentTrack?.id, isPlaying, notifications.nowPlayingAlerts]);
 
+  const showCatalogNotice = useCallback((text: string, scope: 'private' | 'shared') => {
+    setCatalogNotice({ id: Date.now(), text, scope });
+  }, []);
+
+  useEffect(() => {
+    if (!catalogNotice) return;
+    const timer = window.setTimeout(() => {
+      setCatalogNotice((prev) => (prev?.id === catalogNotice.id ? null : prev));
+    }, 3500);
+    return () => window.clearTimeout(timer);
+  }, [catalogNotice]);
+
+  const refreshSharedCatalogSilently = useCallback(async () => {
+    lastSilentSyncRef.current = Date.now();
+    try {
+      const data = await fetchCatalogOverview();
+      setPlaylists(data.playlists);
+      setTracks(data.tracks);
+      setFacets(data.facets);
+      setProviders(data.providers);
+    } catch {
+      // keep current catalog state during transient offline moments
+    }
+  }, []);
+
   const loadOverview = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
@@ -298,6 +342,7 @@ export default function App() {
       setTracks(data.tracks);
       setFacets(data.facets);
       setProviders(data.providers);
+      lastSilentSyncRef.current = Date.now();
 
       const playable = data.tracks.filter(isPlayableTrack);
       setQueue((prev) => (prev.length > 0 ? prev : playable));
@@ -311,6 +356,29 @@ export default function App() {
   useEffect(() => {
     loadOverview();
   }, [loadOverview]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    let source: EventSource | null = null;
+    if (isServerSyncAvailable() && typeof EventSource !== 'undefined') {
+      source = new EventSource('/api/catalog/events');
+      source.addEventListener('catalog-updated', () => {
+        void refreshSharedCatalogSilently();
+      });
+    }
+
+    const handleFocus = () => {
+      if (Date.now() - lastSilentSyncRef.current > 15000) {
+        void refreshSharedCatalogSilently();
+      }
+    };
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      source?.close();
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [refreshSharedCatalogSilently]);
 
   useEffect(() => {
     try {
@@ -338,18 +406,80 @@ export default function App() {
     ].slice(0, 30));
   }, []);
 
-  const handleToggleFavorite = useCallback((trackId: string, discoveredTrack?: Track) => {
-    const wasFavorite = favorites.has(trackId);
-    setFavorites((prev) => {
-      const next = new Set(prev);
-      if (next.has(trackId)) next.delete(trackId);
-      else next.add(trackId);
-      return next;
-    });
-    if (!wasFavorite && discoveredTrack && !tracks.some((t) => t.id === trackId)) {
-      void handleAddToPlaylist(trackId, 'my-playlist', discoveredTrack);
-    }
-  }, [favorites, tracks]);
+  const handleAddToPlaylist = useCallback(
+    async (trackId: string, playlistId: string, discoveredTrack?: Track) => {
+      const targetTitle =
+        playlists.find((p) => p.id === playlistId)?.title ||
+        (playlistId === PRIVATE_PLAYLIST_ID ? 'My Playlist' : 'Shared Playlist');
+
+      const data = await assignTrackToPlaylist(playlistId, trackId, discoveredTrack, tracks);
+      if (!data) return;
+
+      if (data.scope === 'private' || playlistId === PRIVATE_PLAYLIST_ID) {
+        setFavorites((prev) => {
+          if (prev.has(trackId)) return prev;
+          const next = new Set(prev);
+          next.add(trackId);
+          return next;
+        });
+        setPrivateMyPlaylistIds((prev) => {
+          if (prev.has(trackId)) return prev;
+          const next = new Set(prev);
+          next.add(trackId);
+          savePrivateMyPlaylistIds(next);
+          return next;
+        });
+        if (!tracks.some((t) => t.id === trackId)) {
+          setPrivateMyPlaylistTracks((prev) => [
+            data.track,
+            ...prev.filter((t) => t.id !== trackId),
+          ]);
+        }
+        showCatalogNotice(`"${data.track.title}" saved privately to My Playlist.`, 'private');
+        return;
+      }
+
+      setTracks((prev) => {
+        const exists = prev.some((t) => t.id === trackId);
+        return exists
+          ? prev.map((t) => (t.id === trackId ? data.track : t))
+          : [data.track, ...prev];
+      });
+      if (data.playlists) setPlaylists(data.playlists);
+      if (data.facets) setFacets(data.facets);
+      showCatalogNotice(
+        `"${data.track.title}" added to ${targetTitle} — shared with all users.`,
+        'shared'
+      );
+    },
+    [playlists, tracks, showCatalogNotice]
+  );
+
+  const handleToggleFavorite = useCallback(
+    (trackId: string, discoveredTrack?: Track) => {
+      const wasFavorite = favorites.has(trackId);
+      setFavorites((prev) => {
+        const next = new Set(prev);
+        if (next.has(trackId)) next.delete(trackId);
+        else next.add(trackId);
+        return next;
+      });
+      if (wasFavorite) {
+        setPrivateMyPlaylistIds((prev) => {
+          if (!prev.has(trackId)) return prev;
+          const next = new Set(prev);
+          next.delete(trackId);
+          savePrivateMyPlaylistIds(next);
+          return next;
+        });
+        return;
+      }
+      if (discoveredTrack && !tracks.some((t) => t.id === trackId)) {
+        void handleAddToPlaylist(trackId, PRIVATE_PLAYLIST_ID, discoveredTrack);
+      }
+    },
+    [favorites, tracks, handleAddToPlaylist]
+  );
 
   const playTrackFromList = useCallback(
     (track: Track, list: Track[]) => {
@@ -479,14 +609,27 @@ export default function App() {
 
   const getPlaylistTracks = useCallback(
     (playlistId: string) => {
-      if (playlistId === 'my-playlist') {
-        return tracks.filter(
-          (t) => favorites.has(t.id) || t.playlistIds.includes('my-playlist')
-        );
+      if (playlistId === PRIVATE_PLAYLIST_ID) {
+        const merged = new Map<string, Track>();
+        for (const t of privateMyPlaylistTracks) {
+          if (favorites.has(t.id) || privateMyPlaylistIds.has(t.id)) {
+            merged.set(t.id, t);
+          }
+        }
+        for (const t of tracks) {
+          if (
+            favorites.has(t.id) ||
+            privateMyPlaylistIds.has(t.id) ||
+            t.playlistIds.includes(PRIVATE_PLAYLIST_ID)
+          ) {
+            merged.set(t.id, t);
+          }
+        }
+        return Array.from(merged.values());
       }
       return tracks.filter((t) => t.playlistIds.includes(playlistId));
     },
-    [tracks, favorites]
+    [tracks, favorites, privateMyPlaylistTracks, privateMyPlaylistIds]
   );
 
   const quickPlayPlaylist = useCallback((playlistId: string) => {
@@ -504,43 +647,57 @@ export default function App() {
 
   const handleCreateVaultTrack = async (input: NewAuthorisedTrackInput) => {
     const data = await createVaultTrack(input);
+    if (data.scope === 'private') {
+      setPrivateMyPlaylistTracks((prev) => [
+        data.track,
+        ...prev.filter((t) => t.id !== data.track.id),
+      ]);
+      setPrivateMyPlaylistIds((prev) => {
+        const next = new Set(prev);
+        next.add(data.track.id);
+        savePrivateMyPlaylistIds(next);
+        return next;
+      });
+      setFavorites((prev) => {
+        const next = new Set(prev);
+        next.add(data.track.id);
+        return next;
+      });
+      showCatalogNotice(`"${data.track.title}" saved privately to My Playlist.`, 'private');
+      return;
+    }
+
     setTracks((prev) => [data.track, ...prev]);
-    setPlaylists(data.playlists);
-    setFacets(data.facets);
+    if (data.playlists) setPlaylists(data.playlists);
+    if (data.facets) setFacets(data.facets);
+    showCatalogNotice(`"${data.track.title}" published to shared GullyGroove catalog.`, 'shared');
   };
 
   const handleRemoveVaultTrack = async (trackId: string) => {
     const data = await removeVaultTrack(trackId);
     if (!data) return;
-    setTracks((prev) => prev.filter((t) => t.id !== trackId));
-    setPlaylists(data.playlists);
-    setFacets(data.facets);
-  };
-
-  const handleAddToPlaylist = useCallback(async (
-    trackId: string,
-    playlistId: string,
-    discoveredTrack?: Track
-  ) => {
-    if (playlistId === 'my-playlist') {
-      setFavorites((prev) => {
-        if (prev.has(trackId)) return prev;
+    if (data.scope === 'private') {
+      setPrivateMyPlaylistTracks((prev) => prev.filter((t) => t.id !== trackId));
+      setPrivateMyPlaylistIds((prev) => {
+        if (!prev.has(trackId)) return prev;
         const next = new Set(prev);
-        next.add(trackId);
+        next.delete(trackId);
+        savePrivateMyPlaylistIds(next);
         return next;
       });
+      setFavorites((prev) => {
+        if (!prev.has(trackId)) return prev;
+        const next = new Set(prev);
+        next.delete(trackId);
+        return next;
+      });
+      return;
     }
-    const data = await assignTrackToPlaylist(playlistId, trackId, discoveredTrack);
-    if (!data) return;
-    setTracks((prev) => {
-      const exists = prev.some((t) => t.id === trackId);
-      return exists
-        ? prev.map((t) => (t.id === trackId ? data.track : t))
-        : [data.track, ...prev];
-    });
-    setPlaylists(data.playlists);
-    setFacets(data.facets);
-  }, []);
+
+    setTracks((prev) => prev.filter((t) => t.id !== trackId));
+    if (data.playlists) setPlaylists(data.playlists);
+    if (data.facets) setFacets(data.facets);
+  };
 
   const playlistsWithLiveCounts = useMemo(() => {
     return playlists.map((pl) => {
@@ -639,7 +796,16 @@ export default function App() {
     languageFilter,
   ]);
 
-  const vaultTracks = useMemo(() => tracks.filter((t) => t.isUserAdded), [tracks]);
+  const vaultTracks = useMemo(() => {
+    const map = new Map<string, Track>();
+    for (const t of privateMyPlaylistTracks) {
+      if (t.isUserAdded) map.set(t.id, t);
+    }
+    for (const t of tracks) {
+      if (t.isUserAdded) map.set(t.id, t);
+    }
+    return Array.from(map.values());
+  }, [privateMyPlaylistTracks, tracks]);
   const studioTracks = useMemo(() => tracks.filter((t) => !t.isUserAdded), [tracks]);
 
   const topBreadcrumb =
@@ -1615,6 +1781,27 @@ export default function App() {
         onChangeCrossfadeSettings={setCrossfadeSettings}
         onClose={() => setSettingsOpen(false)}
       />
+
+      {catalogNotice ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`fixed right-4 z-50 max-w-sm rounded-xl border px-3.5 py-2.5 shadow-2xl backdrop-blur-xl flex items-center gap-2.5 text-xs font-medium transition-all ${
+            currentTrack ? 'bottom-36 lg:bottom-24' : 'bottom-16 lg:bottom-5'
+          } ${
+            catalogNotice.scope === 'private'
+              ? 'bg-[#141422]/95 border-amber-400/35 text-amber-100'
+              : 'bg-[#121626]/95 border-emerald-400/35 text-emerald-100'
+          }`}
+        >
+          {catalogNotice.scope === 'private' ? (
+            <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          ) : (
+            <Globe className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+          )}
+          <span className="leading-snug">{catalogNotice.text}</span>
+        </div>
+      ) : null}
 
       <OfflineIndicator />
     </div>

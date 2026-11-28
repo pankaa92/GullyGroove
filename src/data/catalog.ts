@@ -39,13 +39,13 @@ export const INITIAL_PLAYLISTS: Playlist[] = [
     id: 'my-playlist',
     slug: 'my-playlist',
     title: 'My Playlist',
-    subtitle: 'Your liked songs & personal favorites',
+    subtitle: 'Your private liked songs & saved picks',
     description:
-      'Every track you heart or save to My Playlist appears here automatically with 8-second gapless crossfade playback.',
-    mood: 'Personal Mix',
+      'Private to you — every track you heart or save to My Playlist stays only on your device with seamless crossfade playback.',
+    mood: 'Private Mix',
     region: 'Pan-India',
     coverUrl: COVER_ASSETS.bollywoodRomantic,
-    curatedBy: 'You · GullyGroove',
+    curatedBy: 'Private · Only You',
     featured: true,
   },
   {
@@ -622,7 +622,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/OoWZz',
     externalUrl: 'https://audius.co',
     attribution: 'BASHER TOE via Audius Open Streaming',
-    playlistIds: ['party-dj-hits', 'saloon-playlist', 'workout-motivation'],
+    playlistIds: ['party-dj-hits', 'workout-motivation'],
     audioProfile: { bpm: 130, rootHz: 220.0, scale: 'pentatonic', groove: 'punjabi-dhol', intensity: 0.91 },
     plays: 1412300,
   },
@@ -714,7 +714,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/A8g307',
     externalUrl: 'https://audius.co',
     attribution: 'Phuture Collective via Audius Open Streaming',
-    playlistIds: ['2am-playlist', 'bus-driver-playlist', 'saloon-playlist'],
+    playlistIds: ['2am-playlist', 'bus-driver-playlist'],
     audioProfile: { bpm: 114, rootHz: 196.0, scale: 'dorian', groove: 'global-pop', intensity: 0.78 },
     plays: 940500,
   },
@@ -829,7 +829,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/3KRM8',
     externalUrl: 'https://audius.co',
     attribution: 'YKK via Audius Open Streaming',
-    playlistIds: ['party-dj-hits', 'saloon-playlist', 'workout-motivation'],
+    playlistIds: ['party-dj-hits', 'workout-motivation'],
     audioProfile: { bpm: 118, rootHz: 293.66, scale: 'pentatonic', groove: 'punjabi-dhol', intensity: 0.9 },
     plays: 1480000,
   },
@@ -898,7 +898,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/bvAPoXP',
     externalUrl: 'https://audius.co',
     attribution: 'DJ Nilesh Raj via Audius Open Streaming',
-    playlistIds: ['saloon-playlist', 'party-dj-hits', 'bus-driver-playlist'],
+    playlistIds: ['party-dj-hits', 'bus-driver-playlist'],
     audioProfile: { bpm: 124, rootHz: 246.94, scale: 'pentatonic', groove: 'punjabi-dhol', intensity: 0.9 },
     plays: 1690000,
   },
@@ -921,7 +921,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/62o3E',
     externalUrl: 'https://audius.co',
     attribution: 'Naeemniloy via Audius Open Streaming',
-    playlistIds: ['saloon-playlist', 'workout-motivation', 'top-50-hindi'],
+    playlistIds: ['workout-motivation', 'top-50-hindi'],
     audioProfile: { bpm: 112, rootHz: 293.66, scale: 'dorian', groove: 'punjabi-dhol', intensity: 0.88 },
     plays: 1420000,
   },
@@ -967,7 +967,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/zb9ap',
     externalUrl: 'https://audius.co',
     attribution: 'DJ Dalal London via Audius Open Streaming',
-    playlistIds: ['bus-driver-playlist', 'saloon-playlist', 'party-dj-hits', 'bhojpuri-hits', 'sab-chalega'],
+    playlistIds: ['bus-driver-playlist', 'party-dj-hits', 'bhojpuri-hits', 'sab-chalega'],
     audioProfile: { bpm: 128, rootHz: 261.63, scale: 'pentatonic', groove: 'punjabi-dhol', intensity: 0.92 },
     plays: 2310000,
   },
@@ -990,7 +990,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/OlGjZ',
     externalUrl: 'https://audius.co',
     attribution: 'Punit via Audius Open Streaming',
-    playlistIds: ['evening-daru-playlist', 'bus-driver-playlist', 'saloon-playlist', 'bhojpuri-hits'],
+    playlistIds: ['evening-daru-playlist', 'bus-driver-playlist', 'bhojpuri-hits'],
     audioProfile: { bpm: 122, rootHz: 246.94, scale: 'major', groove: 'highway-folk', intensity: 0.86 },
     plays: 1560000,
   },
@@ -1105,7 +1105,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/E2WJjWR',
     externalUrl: 'https://audius.co',
     attribution: 'Parameswara Reddy M via Audius Open Streaming',
-    playlistIds: ['90s-hindi-classics', 'bus-driver-playlist', 'saloon-playlist'],
+    playlistIds: ['90s-hindi-classics', 'bus-driver-playlist'],
     audioProfile: { bpm: 114, rootHz: 293.66, scale: 'major', groove: 'highway-folk', intensity: 0.8 },
     plays: 1740000,
   },
@@ -1678,7 +1678,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     embedId: 'KUN5Uf9mObQ',
     externalUrl: 'https://youtu.be/KUN5Uf9mObQ',
     attribution: 'Official YouTube Channel: Sun TV',
-    playlistIds: ['south-hits', 'saloon-playlist', 'workout-motivation'],
+    playlistIds: ['south-hits', 'workout-motivation'],
     plays: 11200000,
   },
   {
@@ -1774,7 +1774,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     embedId: 'rOirJKJoE0o',
     externalUrl: 'https://youtu.be/rOirJKJoE0o',
     attribution: 'Official YouTube Channel: Aditya Music',
-    playlistIds: ['south-hits', 'saloon-playlist', 'top-50-hindi'],
+    playlistIds: ['south-hits', 'top-50-hindi'],
     plays: 10900000,
   },
   {
@@ -2160,7 +2160,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     embedId: 'y3Jc2kxaqdw',
     externalUrl: 'https://youtu.be/y3Jc2kxaqdw',
     attribution: 'Official YouTube Channel: Wave Music Bhojpuri',
-    playlistIds: ['bhojpuri-hits', 'saloon-playlist'],
+    playlistIds: ['bhojpuri-hits'],
     plays: 13600000,
   },
   {
@@ -2208,7 +2208,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     embedId: '_XntlcaPFWA',
     externalUrl: 'https://youtu.be/_XntlcaPFWA',
     attribution: 'Official YouTube Channel: Saregama Hum Bhojpuri',
-    playlistIds: ['bhojpuri-hits', 'saloon-playlist'],
+    playlistIds: ['bhojpuri-hits'],
     plays: 6400000,
   },
   {
@@ -3489,6 +3489,151 @@ const BASE_CURATED_TRACKS: Track[] = [
     playlistIds: ['2am-playlist'],
     plays: 2550000,
   },
+  // Salon Playlist Curated Additions
+  {
+    id: 'yt-uIYFObB-yv0',
+    title: "Barber Saloon Hits — 90's Bollywood Songs Collection",
+    artist: "90's Gaane",
+    album: 'Barber Saloon Classics',
+    genre: 'Salon Classics',
+    language: 'Hindi',
+    durationSec: 0,
+    bpm: 104,
+    year: 1996,
+    coverUrl: 'https://i.ytimg.com/vi/uIYFObB-yv0/hqdefault.jpg',
+    providerId: 'youtube-data',
+    providerName: 'YouTube Official Embed',
+    licenseType: 'Metadata & Official Embed',
+    licenseSummary:
+      'Plays directly via the official YouTube embedded player, respecting YouTube playback policies.',
+    playbackRights: 'embed-only',
+    streamUrl: '',
+    embedId: 'uIYFObB-yv0',
+    externalUrl: 'https://youtu.be/uIYFObB-yv0?si=Ex4PG2vAePgFGT7r',
+    attribution: "Official YouTube Channel: 90's Gaane",
+    playlistIds: ['saloon-playlist', '90s-hindi-classics'],
+    plays: 4200000,
+  },
+  {
+    id: 'yt-9Cp-hNvSWZs',
+    title: 'Maiyya Mainu',
+    artist: 'Sachet Tandon',
+    album: 'Jersey',
+    genre: 'Bollywood Romantic',
+    language: 'Hindi',
+    durationSec: 232,
+    bpm: 96,
+    year: 2021,
+    coverUrl: 'https://i.ytimg.com/vi/9Cp-hNvSWZs/hqdefault.jpg',
+    providerId: 'youtube-data',
+    providerName: 'YouTube Official Embed',
+    licenseType: 'Metadata & Official Embed',
+    licenseSummary:
+      'Plays directly via the official YouTube embedded player, respecting YouTube playback policies.',
+    playbackRights: 'embed-only',
+    streamUrl: '',
+    embedId: '9Cp-hNvSWZs',
+    externalUrl: 'https://youtu.be/9Cp-hNvSWZs?si=mEncw0FI066N0pD8',
+    attribution: 'Official YouTube Channel: Sachet Tandon',
+    playlistIds: ['saloon-playlist', 'top-50-hindi'],
+    plays: 8600000,
+  },
+  {
+    id: 'yt-U13aOFC9Oic',
+    title: 'Makhna',
+    artist: 'Tanishk Bagchi · Yasser Desai · Asees Kaur',
+    album: 'Drive',
+    genre: 'Indipop Groove',
+    language: 'Hindi',
+    durationSec: 0,
+    bpm: 110,
+    year: 2019,
+    coverUrl: 'https://i.ytimg.com/vi/U13aOFC9Oic/hqdefault.jpg',
+    providerId: 'youtube-data',
+    providerName: 'YouTube Official Embed',
+    licenseType: 'Metadata & Official Embed',
+    licenseSummary:
+      'Plays directly via the official YouTube embedded player, respecting YouTube playback policies.',
+    playbackRights: 'embed-only',
+    streamUrl: '',
+    embedId: 'U13aOFC9Oic',
+    externalUrl: 'https://youtu.be/U13aOFC9Oic?si=pp_5rX-mnA_IYB20',
+    attribution: 'Official YouTube Channel: Tanishk Bagchi',
+    playlistIds: ['saloon-playlist', 'top-50-hindi'],
+    plays: 12400000,
+  },
+  {
+    id: 'yt-amWKXh9_EQE',
+    title: 'Ranjha',
+    artist: 'Jasleen Royal · B Praak',
+    album: 'Shershaah',
+    genre: 'Bollywood Romantic',
+    language: 'Hindi',
+    durationSec: 0,
+    bpm: 92,
+    year: 2021,
+    coverUrl: 'https://i.ytimg.com/vi/amWKXh9_EQE/hqdefault.jpg',
+    providerId: 'youtube-data',
+    providerName: 'YouTube Official Embed',
+    licenseType: 'Metadata & Official Embed',
+    licenseSummary:
+      'Plays directly via the official YouTube embedded player, respecting YouTube playback policies.',
+    playbackRights: 'embed-only',
+    streamUrl: '',
+    embedId: 'amWKXh9_EQE',
+    externalUrl: 'https://youtu.be/amWKXh9_EQE?si=9nFcf60Ke2I1bLw6',
+    attribution: 'Official YouTube Channel: Jasleen Royal',
+    playlistIds: ['saloon-playlist', 'top-50-hindi'],
+    plays: 15100000,
+  },
+  {
+    id: 'yt-RWqmC7oBPKA',
+    title: 'Deluxe Pop Saloon (Barber Shop Playlist)',
+    artist: 'Pop Chartbusters',
+    album: 'Deluxe Pop Saloon',
+    genre: 'Salon Classics',
+    language: 'Hindi',
+    durationSec: 0,
+    bpm: 108,
+    year: 2024,
+    coverUrl: 'https://i.ytimg.com/vi/RWqmC7oBPKA/hqdefault.jpg',
+    providerId: 'youtube-data',
+    providerName: 'YouTube Official Embed',
+    licenseType: 'Metadata & Official Embed',
+    licenseSummary:
+      'Plays directly via the official YouTube embedded player, respecting YouTube playback policies.',
+    playbackRights: 'embed-only',
+    streamUrl: '',
+    embedId: 'RWqmC7oBPKA',
+    externalUrl: 'https://youtu.be/RWqmC7oBPKA?si=ZxvLZl3QAj3pMTZ-',
+    attribution: 'Official YouTube Channel: Pop Chartbusters',
+    playlistIds: ['saloon-playlist'],
+    plays: 3100000,
+  },
+  {
+    id: 'yt-Y3vDUB2yi7w',
+    title: 'Barbershop Music 2026 (Chill Hip-Hop & R&B Vibes)',
+    artist: 'Barber Ground Music',
+    album: 'Barber Chair Chill',
+    genre: 'Chill Hip-Hop & R&B',
+    language: 'English',
+    durationSec: 0,
+    bpm: 94,
+    year: 2026,
+    coverUrl: 'https://i.ytimg.com/vi/Y3vDUB2yi7w/hqdefault.jpg',
+    providerId: 'youtube-data',
+    providerName: 'YouTube Official Embed',
+    licenseType: 'Metadata & Official Embed',
+    licenseSummary:
+      'Plays directly via the official YouTube embedded player, respecting YouTube playback policies.',
+    playbackRights: 'embed-only',
+    streamUrl: '',
+    embedId: 'Y3vDUB2yi7w',
+    externalUrl: 'https://youtu.be/Y3vDUB2yi7w?si=tOAIpax_-7C5iRqh',
+    attribution: 'Official YouTube Channel: Barber Ground Music',
+    playlistIds: ['saloon-playlist'],
+    plays: 1850000,
+  },
 ];
 
 const BAJAO_CATEGORY_TO_PLAYLIST: Record<string, string> = {
@@ -3695,8 +3840,49 @@ function buildInitialTracks(): Track[] {
     }
   }
 
+  const busDriverKeepIds = new Set([
+    'bj-barsaat',
+    'yt-txHO7PLGE3o',
+    'yt-suw-DufKKTA',
+    'yt-1Vns6GKPt38',
+    'yt-00DvaPstcpo',
+  ]);
+
+  const twoAmExcludeIds = new Set([
+    'bj-ek-pal-ka-jeena',
+    'bj-matargashti',
+    'bj-ilahi',
+    'bj-socha-hai',
+    'bj-khuda-jaane',
+    'bj-pehli-nazar-mein',
+    'yt-vCtWWUwzNiE',
+    'gg-07',
+    'bj-inkem-inkem',
+    'bj-rock-on-title',
+  ]);
+
   for (const track of tracks) {
-    track.playlistIds = refineTrackPlaylistIds(track);
+    let ids = refineTrackPlaylistIds(track);
+
+    if (busDriverKeepIds.has(track.id)) {
+      if (!ids.includes('bus-driver-playlist')) {
+        ids = [...ids, 'bus-driver-playlist'];
+      }
+    } else if (ids.includes('bus-driver-playlist')) {
+      ids = ids.filter((id) => id !== 'bus-driver-playlist');
+      if (ids.length === 0) {
+        ids = ['sab-chalega'];
+      }
+    }
+
+    if (twoAmExcludeIds.has(track.id) && ids.includes('2am-playlist')) {
+      ids = ids.filter((id) => id !== '2am-playlist');
+      if (ids.length === 0) {
+        ids = ['sab-chalega'];
+      }
+    }
+
+    track.playlistIds = ids;
   }
 
   return tracks;
