@@ -13,7 +13,7 @@ import {
 } from './src/server/geminiClient';
 import {
   catalogService,
-  PRIVATE_PLAYLIST_ID,
+  isPrivatePlaylistId,
 } from './src/server/providers/catalogService';
 import type { NewAuthorisedTrackInput } from './src/types/music';
 
@@ -48,11 +48,18 @@ async function startServer() {
     });
   });
 
+  // Lightweight Version Check for Live Shared Catalog Sync
+  app.get('/api/catalog/version', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ version: catalogService.getCatalogVersion() });
+  });
+
   // Live Cross-User Shared Catalog Sync (SSE)
   app.get('/api/catalog/events', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders?.();
 
     const sendEvent = (event: string, data: unknown) => {
@@ -248,9 +255,9 @@ async function startServer() {
       return;
     }
 
-    if (body.playlistId === PRIVATE_PLAYLIST_ID) {
+    if (isPrivatePlaylistId(body.playlistId || '')) {
       res.status(400).json({
-        error: 'My Playlist is private to the owner and cannot be published to the shared catalog.',
+        error: 'Private playlists stay on your own account/device and cannot be published to the shared catalog.',
       });
       return;
     }
@@ -291,13 +298,17 @@ async function startServer() {
   });
 
   app.post('/api/playlists/:id/tracks', (req, res) => {
-    if (req.params.id === PRIVATE_PLAYLIST_ID) {
+    if (isPrivatePlaylistId(req.params.id)) {
       res.status(403).json({
         error: 'My Playlist is private to its owner and is stored locally on your device.',
       });
       return;
     }
-    const { trackId, track } = req.body as { trackId?: string; track?: unknown };
+    const { trackId, track, playlistMeta } = req.body as {
+      trackId?: string;
+      track?: unknown;
+      playlistMeta?: unknown;
+    };
     if (!trackId) {
       res.status(400).json({ error: 'trackId is required' });
       return;
@@ -305,7 +316,8 @@ async function startServer() {
     const updated = catalogService.assignTrackToPlaylist(
       trackId,
       req.params.id,
-      track as Parameters<typeof catalogService.assignTrackToPlaylist>[2]
+      track as Parameters<typeof catalogService.assignTrackToPlaylist>[2],
+      playlistMeta as Parameters<typeof catalogService.assignTrackToPlaylist>[3]
     );
     if (!updated) {
       res.status(404).json({ error: 'Track or playlist not found' });

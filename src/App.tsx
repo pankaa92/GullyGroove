@@ -8,19 +8,25 @@ import {
   Lock,
   Music2,
   Play,
+  Plus,
   Search,
-  Settings,
   Shuffle,
+  Trash2,
+  Users,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AboutModal } from './components/AboutModal';
 import { AddTrackModal } from './components/AddTrackModal';
 import { ArtworkImage } from './components/ArtworkImage';
 import { BrandLogo } from './components/BrandLogo';
+import { CreatePlaylistModal } from './components/CreatePlaylistModal';
 import { GroovyAssistant } from './components/GroovyAssistant';
+import { HeaderMenu } from './components/HeaderMenu';
 import { MediaVaultView } from './components/MediaVaultView';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { PlayerBar, type RepeatMode } from './components/PlayerBar';
 import { PlaylistCard } from './components/PlaylistCard';
+import { ProfileModal } from './components/ProfileModal';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { RequestSongModal } from './components/RequestSongModal';
 import { SearchExploreView } from './components/SearchExploreView';
@@ -31,11 +37,14 @@ import {
   type NotificationSettings,
 } from './components/SettingsModal';
 import { TrackRow } from './components/TrackRow';
+import { useFirebase } from './contexts/FirebaseContext';
 import { COVER_ASSETS } from './data/catalog';
 import {
   assignTrackToPlaylist,
   createVaultTrack,
   fetchCatalogOverview,
+  fetchCatalogVersion,
+  isPrivatePlaylistId,
   isServerSyncAvailable,
   loadPrivateMyPlaylistIds,
   loadPrivateMyPlaylistTracks,
@@ -44,6 +53,30 @@ import {
   removeVaultTrack,
   savePrivateMyPlaylistIds,
 } from './services/clientCatalog';
+import {
+  addTrackToPersonalPlaylistInFirestore,
+  clearRecentlyPlayedInFirestore,
+  contributeTrackToSharedPlaylistInFirestore,
+  createPersonalPlaylistInFirestore,
+  createSharedPlaylistInFirestore,
+  deletePersonalPlaylistInFirestore,
+  recordRecentlyPlayedInFirestore,
+  saveUserPreferencesInFirestore,
+  setLikedSongInFirestore,
+  subscribeLikedSongs,
+  subscribePersonalPlaylists,
+  subscribePersonalPlaylistTracks,
+  subscribePlaylistContributors,
+  subscribeRecentlyPlayed,
+  subscribeSharedPlaylists,
+  subscribeSharedPlaylistTracks,
+  subscribeUserPreferences,
+  syncGuestStateToFirestore,
+  updateSharedPlaylistPermissionsInFirestore,
+  type PersonalPlaylistRecord,
+  type PlaylistContributorRecord,
+  type SharedPlaylistRecord,
+} from './services/firebaseMusicService';
 import type {
   NewAuthorisedTrackInput,
   PlaylistWithStats,
@@ -210,10 +243,32 @@ export default function App() {
     text: string;
     scope: 'private' | 'shared';
   } | null>(null);
+  const { user, authError, clearAuthError } = useFirebase();
+  const [cloudLikedTracks, setCloudLikedTracks] = useState<Track[]>([]);
+  const [cloudPersonalPlaylists, setCloudPersonalPlaylists] = useState<PersonalPlaylistRecord[]>([]);
+  const [cloudPersonalTracksByPlaylist, setCloudPersonalTracksByPlaylist] = useState<
+    Record<string, Track[]>
+  >({});
+  const [cloudRecentlyPlayed, setCloudRecentlyPlayed] = useState<Track[]>([]);
+  const [cloudSharedPlaylists, setCloudSharedPlaylists] = useState<SharedPlaylistRecord[]>([]);
+  const [cloudSharedTracksByPlaylist, setCloudSharedTracksByPlaylist] = useState<
+    Record<string, Track[]>
+  >({});
+  const [activePlaylistContributors, setActivePlaylistContributors] = useState<
+    PlaylistContributorRecord[]
+  >([]);
+
   const lastSilentSyncRef = useRef<number>(0);
+  const catalogVersionRef = useRef<number>(0);
+  const syncedUidRef = useRef<string | null>(null);
+  const applyingRemotePrefsRef = useRef(false);
+
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [requestModalOpen, setRequestModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [createPlaylistOpen, setCreatePlaylistOpen] = useState(false);
 
   // Theme (always defaults to Dark) & Notification preferences
   const [theme, setTheme] = useState<AppTheme>(() => {
@@ -324,6 +379,9 @@ export default function App() {
     lastSilentSyncRef.current = Date.now();
     try {
       const data = await fetchCatalogOverview();
+      if (typeof data.version === 'number') {
+        catalogVersionRef.current = Math.max(catalogVersionRef.current, data.version);
+      }
       setPlaylists(data.playlists);
       setTracks(data.tracks);
       setFacets(data.facets);
@@ -338,6 +396,9 @@ export default function App() {
     setLoadError(null);
     try {
       const data = await fetchCatalogOverview();
+      if (typeof data.version === 'number') {
+        catalogVersionRef.current = Math.max(catalogVersionRef.current, data.version);
+      }
       setPlaylists(data.playlists);
       setTracks(data.tracks);
       setFacets(data.facets);
@@ -360,25 +421,232 @@ export default function App() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     let source: EventSource | null = null;
-    if (isServerSyncAvailable() && typeof EventSource !== 'undefined') {
-      source = new EventSource('/api/catalog/events');
-      source.addEventListener('catalog-updated', () => {
-        void refreshSharedCatalogSilently();
-      });
-    }
-
-    const handleFocus = () => {
-      if (Date.now() - lastSilentSyncRef.current > 15000) {
+    const handleVersionEvent = (event: MessageEvent) => {
+      try {
+        const payload = JSON.parse(event.data) as { version?: number };
+        if (
+          typeof payload.version === 'number' &&
+          payload.version > catalogVersionRef.current
+        ) {
+          void refreshSharedCatalogSilently();
+        }
+      } catch {
         void refreshSharedCatalogSilently();
       }
     };
+
+    if (isServerSyncAvailable() && typeof EventSource !== 'undefined') {
+      source = new EventSource('/api/catalog/events');
+      source.addEventListener('connected', handleVersionEvent);
+      source.addEventListener('catalog-updated', handleVersionEvent);
+    }
+
+    const syncIfChanged = async () => {
+      if (document.hidden || !isServerSyncAvailable()) return;
+      const remoteVersion = await fetchCatalogVersion();
+      if (remoteVersion !== null && remoteVersion > catalogVersionRef.current) {
+        await refreshSharedCatalogSilently();
+      }
+    };
+
+    const handleFocus = () => {
+      if (Date.now() - lastSilentSyncRef.current > 4000) {
+        void syncIfChanged();
+      }
+    };
+
+    const handleVisibility = () => {
+      if (!document.hidden && Date.now() - lastSilentSyncRef.current > 4000) {
+        void syncIfChanged();
+      }
+    };
+
+    const pollTimer = window.setInterval(() => {
+      void syncIfChanged();
+    }, 10000);
+
     window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
       source?.close();
+      window.clearInterval(pollTimer);
       window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [refreshSharedCatalogSilently]);
+
+  useEffect(() => {
+    if (!authError) return;
+    showCatalogNotice(authError, 'private');
+    clearAuthError();
+  }, [authError, clearAuthError, showCatalogNotice]);
+
+  // Always subscribe to shared community playlists & tracks (guests and authenticated users)
+  useEffect(() => {
+    const unsubSharedPlaylists = subscribeSharedPlaylists(
+      (items) => setCloudSharedPlaylists(items),
+      () => {
+        // Fallback to server/static catalog cleanly if offline
+      }
+    );
+    return () => {
+      unsubSharedPlaylists();
+    };
+  }, []);
+
+  // Subscribe per shared playlist using standard subcollection queries (no collectionGroup index required)
+  useEffect(() => {
+    const activeIds = new Set(
+      cloudSharedPlaylists
+        .map((p) => p.id)
+        .filter((pid) => pid && !isPrivatePlaylistId(pid))
+    );
+
+    if (activeIds.size === 0) {
+      setCloudSharedTracksByPlaylist({});
+      return;
+    }
+
+    setCloudSharedTracksByPlaylist((prev) => {
+      const next: Record<string, Track[]> = {};
+      for (const pid of activeIds) {
+        if (prev[pid]) next[pid] = prev[pid];
+      }
+      return next;
+    });
+
+    const unsubs = Array.from(activeIds).map((pid) =>
+      subscribeSharedPlaylistTracks(
+        pid,
+        (items) => {
+          setCloudSharedTracksByPlaylist((prev) => ({
+            ...prev,
+            [pid]: items,
+          }));
+        },
+        () => {
+          // Fallback to server catalog cleanly if offline
+        }
+      )
+    );
+
+    return () => {
+      for (const unsub of unsubs) unsub();
+    };
+  }, [cloudSharedPlaylists]);
+
+  // Subscribe to contributors for the currently open shared playlist
+  useEffect(() => {
+    if (
+      activeTab !== 'playlist-detail' ||
+      !selectedPlaylistId ||
+      isPrivatePlaylistId(selectedPlaylistId)
+    ) {
+      setActivePlaylistContributors([]);
+      return;
+    }
+    const unsub = subscribePlaylistContributors(
+      selectedPlaylistId,
+      (items) => setActivePlaylistContributors(items),
+      () => setActivePlaylistContributors([])
+    );
+    return () => unsub();
+  }, [activeTab, selectedPlaylistId]);
+
+  // Subscribe to authenticated user's private Firestore data
+  useEffect(() => {
+    if (!user) {
+      syncedUidRef.current = null;
+      setCloudLikedTracks([]);
+      setCloudPersonalPlaylists([]);
+      setCloudPersonalTracksByPlaylist({});
+      setCloudRecentlyPlayed([]);
+      return;
+    }
+
+    const uid = user.uid;
+    const unsubLiked = subscribeLikedSongs(uid, setCloudLikedTracks);
+    const unsubRecent = subscribeRecentlyPlayed(uid, setCloudRecentlyPlayed);
+    const unsubPersonalPlaylists = subscribePersonalPlaylists(
+      uid,
+      setCloudPersonalPlaylists
+    );
+    const unsubPrefs = subscribeUserPreferences(uid, (remotePrefs) => {
+      if (!remotePrefs) return;
+      applyingRemotePrefsRef.current = true;
+      setTheme(remotePrefs.theme);
+      setCrossfadeSettings({
+        crossfadeSec: remotePrefs.crossfadeSec,
+        djCrossfadeSec: remotePrefs.djCrossfadeSec,
+        djMode: remotePrefs.djMode,
+      });
+      setNotifications(remotePrefs.notifications);
+      window.setTimeout(() => {
+        applyingRemotePrefsRef.current = false;
+      }, 150);
+    });
+
+    if (syncedUidRef.current !== uid) {
+      syncedUidRef.current = uid;
+      const favTracks = tracks.filter((t) => favorites.has(t.id));
+      const myTracks = [
+        ...privateMyPlaylistTracks,
+        ...tracks.filter((t) => privateMyPlaylistIds.has(t.id)),
+      ];
+      void syncGuestStateToFirestore(user, {
+        favoriteTracks: favTracks,
+        myPlaylistTracks: myTracks,
+        recentlyPlayed,
+        theme,
+        crossfadeSettings,
+        notifications,
+      }).catch(() => {
+        // ignore transient sync failure on initial sign-in
+      });
+    }
+
+    return () => {
+      unsubLiked();
+      unsubRecent();
+      unsubPersonalPlaylists();
+      unsubPrefs();
+    };
+  }, [user]);
+
+  // Subscribe to tracks inside each private personal playlist owned by the authenticated user
+  useEffect(() => {
+    if (!user) return;
+    const playlistIds = Array.from(
+      new Set([PRIVATE_PLAYLIST_ID, ...cloudPersonalPlaylists.map((p) => p.id)])
+    );
+    const unsubs = playlistIds.map((pid) =>
+      subscribePersonalPlaylistTracks(user.uid, pid, (items) => {
+        setCloudPersonalTracksByPlaylist((prev) => ({
+          ...prev,
+          [pid]: items,
+        }));
+      })
+    );
+    return () => {
+      for (const unsub of unsubs) unsub();
+    };
+  }, [user, cloudPersonalPlaylists]);
+
+  // Persist user preferences to Firestore when signed in
+  useEffect(() => {
+    if (!user || applyingRemotePrefsRef.current) return;
+    const timer = window.setTimeout(() => {
+      void saveUserPreferencesInFirestore(user.uid, {
+        theme,
+        crossfadeSettings,
+        notifications,
+      }).catch(() => {
+        // ignore offline preference save errors
+      });
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [user, theme, crossfadeSettings, notifications]);
 
   useEffect(() => {
     try {
@@ -399,23 +667,136 @@ export default function App() {
     }
   }, [recentlyPlayed]);
 
-  const pushRecentlyPlayed = useCallback((track: Track) => {
-    setRecentlyPlayed((prev) => [
-      track,
-      ...prev.filter((t) => t.id !== track.id),
-    ].slice(0, 30));
-  }, []);
+  const activeFavorites = useMemo(
+    () => (user ? new Set(cloudLikedTracks.map((t) => t.id)) : favorites),
+    [user, cloudLikedTracks, favorites]
+  );
+
+  const activeRecentlyPlayed = useMemo(
+    () => (user ? cloudRecentlyPlayed : recentlyPlayed),
+    [user, cloudRecentlyPlayed, recentlyPlayed]
+  );
+
+  const allKnownTracks = useMemo(() => {
+    const map = new Map<string, Track>();
+    for (const t of tracks) map.set(t.id, t);
+    for (const t of privateMyPlaylistTracks) if (!map.has(t.id)) map.set(t.id, t);
+    for (const list of Object.values(cloudSharedTracksByPlaylist)) {
+      for (const t of list) if (!map.has(t.id)) map.set(t.id, t);
+    }
+    for (const list of Object.values(cloudPersonalTracksByPlaylist)) {
+      for (const t of list) if (!map.has(t.id)) map.set(t.id, t);
+    }
+    for (const t of cloudLikedTracks) if (!map.has(t.id)) map.set(t.id, t);
+    return Array.from(map.values());
+  }, [
+    tracks,
+    privateMyPlaylistTracks,
+    cloudSharedTracksByPlaylist,
+    cloudPersonalTracksByPlaylist,
+    cloudLikedTracks,
+  ]);
+
+  const mergedPlaylists = useMemo<PlaylistWithStats[]>(() => {
+    const map = new Map<string, PlaylistWithStats>();
+    for (const pl of playlists) {
+      map.set(pl.id, pl);
+    }
+    if (user) {
+      for (const ppl of cloudPersonalPlaylists) {
+        if (ppl.id === PRIVATE_PLAYLIST_ID) continue;
+        if (!map.has(ppl.id)) {
+          map.set(ppl.id, {
+            id: ppl.id,
+            slug: ppl.id,
+            title: ppl.title,
+            subtitle: ppl.subtitle || 'Private Mix',
+            description: ppl.description,
+            mood: 'Private Personal',
+            region: 'Pan-India',
+            coverUrl: COVER_ASSETS.heroStage,
+            curatedBy: 'Private · Only You',
+            trackCount: 0,
+            totalDurationSec: 0,
+          });
+        }
+      }
+    }
+    for (const spl of cloudSharedPlaylists) {
+      if (!map.has(spl.id)) {
+        map.set(spl.id, {
+          id: spl.id,
+          slug: spl.id,
+          title: spl.title,
+          subtitle: spl.subtitle || `Shared by ${spl.ownerName}`,
+          description: spl.description,
+          mood: spl.mood || 'Community Mix',
+          region: spl.region || 'Pan-India',
+          coverUrl: spl.coverUrl || COVER_ASSETS.heroStage,
+          curatedBy: `Shared · ${spl.ownerName}`,
+          trackCount: 0,
+          totalDurationSec: 0,
+        });
+      }
+    }
+    return Array.from(map.values());
+  }, [playlists, user, cloudPersonalPlaylists, cloudSharedPlaylists]);
+
+  const pushRecentlyPlayed = useCallback(
+    (track: Track) => {
+      setRecentlyPlayed((prev) =>
+        [track, ...prev.filter((t) => t.id !== track.id)].slice(0, 30)
+      );
+      if (user) {
+        void recordRecentlyPlayedInFirestore(user.uid, track).catch(() => {
+          // ignore transient sync error
+        });
+      }
+    },
+    [user]
+  );
 
   const handleAddToPlaylist = useCallback(
     async (trackId: string, playlistId: string, discoveredTrack?: Track) => {
+      const targetPlaylist = mergedPlaylists.find((p) => p.id === playlistId);
       const targetTitle =
-        playlists.find((p) => p.id === playlistId)?.title ||
-        (playlistId === PRIVATE_PLAYLIST_ID ? 'My Playlist' : 'Shared Playlist');
+        targetPlaylist?.title ||
+        (isPrivatePlaylistId(playlistId) ? 'My Playlist' : 'Shared Playlist');
+      const targetTrack =
+        discoveredTrack || allKnownTracks.find((t) => t.id === trackId);
 
-      const data = await assignTrackToPlaylist(playlistId, trackId, discoveredTrack, tracks);
-      if (!data) return;
+      if (isPrivatePlaylistId(playlistId)) {
+        if (user && targetTrack) {
+          try {
+            await addTrackToPersonalPlaylistInFirestore(
+              user.uid,
+              playlistId,
+              targetTrack
+            );
+            if (playlistId === PRIVATE_PLAYLIST_ID && !activeFavorites.has(trackId)) {
+              await setLikedSongInFirestore(user.uid, targetTrack, true);
+            }
+            showCatalogNotice(
+              `"${targetTrack.title}" saved privately to ${targetTitle}.`,
+              'private'
+            );
+          } catch {
+            showCatalogNotice(
+              `Could not save "${targetTrack.title}" to ${targetTitle}.`,
+              'private'
+            );
+          }
+          return;
+        }
 
-      if (data.scope === 'private' || playlistId === PRIVATE_PLAYLIST_ID) {
+        const data = await assignTrackToPlaylist(
+          playlistId,
+          trackId,
+          targetTrack,
+          tracks
+        );
+        if (!data) return;
+
         setFavorites((prev) => {
           if (prev.has(trackId)) return prev;
           const next = new Set(prev);
@@ -435,29 +816,112 @@ export default function App() {
             ...prev.filter((t) => t.id !== trackId),
           ]);
         }
-        showCatalogNotice(`"${data.track.title}" saved privately to My Playlist.`, 'private');
+        showCatalogNotice(
+          `"${data.track.title}" saved privately to ${targetTitle}.`,
+          'private'
+        );
         return;
       }
 
-      setTracks((prev) => {
-        const exists = prev.some((t) => t.id === trackId);
-        return exists
-          ? prev.map((t) => (t.id === trackId ? data.track : t))
-          : [data.track, ...prev];
-      });
-      if (data.playlists) setPlaylists(data.playlists);
-      if (data.facets) setFacets(data.facets);
-      showCatalogNotice(
-        `"${data.track.title}" added to ${targetTitle} — shared with all users.`,
-        'shared'
+      // Shared playlist path
+      let firestoreSynced = false;
+      let firestoreFailed = false;
+      if (user && targetTrack) {
+        const sharedMeta = cloudSharedPlaylists.find((p) => p.id === playlistId);
+        if (
+          sharedMeta &&
+          !sharedMeta.allowContributions &&
+          sharedMeta.ownerId !== user.uid
+        ) {
+          showCatalogNotice(
+            `Contributions to "${targetTitle}" are currently restricted by the playlist owner.`,
+            'private'
+          );
+          return;
+        }
+
+        try {
+          await contributeTrackToSharedPlaylistInFirestore(
+            user,
+            targetPlaylist || {
+              id: playlistId,
+              title: targetTitle,
+              subtitle: 'Shared Playlist',
+              description: 'Shared GullyGroove playlist',
+              mood: 'Shared Mix',
+              region: 'Pan-India',
+              coverUrl: targetTrack.coverUrl || COVER_ASSETS.heroStage,
+            },
+            targetTrack
+          );
+          firestoreSynced = true;
+        } catch {
+          firestoreFailed = true;
+        }
+      }
+
+      const data = await assignTrackToPlaylist(
+        playlistId,
+        trackId,
+        targetTrack,
+        tracks,
+        targetPlaylist
       );
+      if (data) {
+        if (typeof data.version === 'number') {
+          catalogVersionRef.current = Math.max(catalogVersionRef.current, data.version);
+        }
+        setTracks((prev) => {
+          const exists = prev.some((t) => t.id === trackId);
+          return exists
+            ? prev.map((t) => (t.id === trackId ? data.track : t))
+            : [data.track, ...prev];
+        });
+        if (data.playlists) setPlaylists(data.playlists);
+        if (data.facets) setFacets(data.facets);
+      }
+
+      const resolvedTrack = data?.track || targetTrack;
+      if (data || firestoreSynced) {
+        showCatalogNotice(
+          firestoreFailed
+            ? `"${resolvedTrack?.title || 'Track'}" added to ${targetTitle} on server (cloud sync warning).`
+            : `"${resolvedTrack?.title || 'Track'}" added to ${targetTitle} — shared with all users.`,
+          'shared'
+        );
+      } else {
+        showCatalogNotice(
+          `Could not add "${resolvedTrack?.title || 'track'}" to ${targetTitle}.`,
+          'private'
+        );
+      }
     },
-    [playlists, tracks, showCatalogNotice]
+    [
+      mergedPlaylists,
+      allKnownTracks,
+      user,
+      activeFavorites,
+      tracks,
+      cloudSharedPlaylists,
+      showCatalogNotice,
+    ]
   );
 
   const handleToggleFavorite = useCallback(
     (trackId: string, discoveredTrack?: Track) => {
-      const wasFavorite = favorites.has(trackId);
+      const wasFavorite = activeFavorites.has(trackId);
+      const targetTrack =
+        discoveredTrack || allKnownTracks.find((t) => t.id === trackId);
+
+      if (user && targetTrack) {
+        void setLikedSongInFirestore(user.uid, targetTrack, !wasFavorite).catch(
+          () => {
+            showCatalogNotice('Could not update liked song in cloud.', 'private');
+          }
+        );
+        return;
+      }
+
       setFavorites((prev) => {
         const next = new Set(prev);
         if (next.has(trackId)) next.delete(trackId);
@@ -478,7 +942,14 @@ export default function App() {
         void handleAddToPlaylist(trackId, PRIVATE_PLAYLIST_ID, discoveredTrack);
       }
     },
-    [favorites, tracks, handleAddToPlaylist]
+    [
+      activeFavorites,
+      allKnownTracks,
+      user,
+      tracks,
+      handleAddToPlaylist,
+      showCatalogNotice,
+    ]
   );
 
   const playTrackFromList = useCallback(
@@ -609,68 +1080,186 @@ export default function App() {
 
   const getPlaylistTracks = useCallback(
     (playlistId: string) => {
-      if (playlistId === PRIVATE_PLAYLIST_ID) {
-        const merged = new Map<string, Track>();
-        for (const t of privateMyPlaylistTracks) {
-          if (favorites.has(t.id) || privateMyPlaylistIds.has(t.id)) {
-            merged.set(t.id, t);
+      if (isPrivatePlaylistId(playlistId)) {
+        if (playlistId === PRIVATE_PLAYLIST_ID) {
+          const merged = new Map<string, Track>();
+          if (user) {
+            for (const t of cloudPersonalTracksByPlaylist[PRIVATE_PLAYLIST_ID] || []) {
+              merged.set(t.id, t);
+            }
+            for (const t of cloudLikedTracks) {
+              merged.set(t.id, t);
+            }
+          } else {
+            for (const t of privateMyPlaylistTracks) {
+              if (favorites.has(t.id) || privateMyPlaylistIds.has(t.id)) {
+                merged.set(t.id, t);
+              }
+            }
+            for (const t of tracks) {
+              if (
+                favorites.has(t.id) ||
+                privateMyPlaylistIds.has(t.id) ||
+                t.playlistIds.includes(PRIVATE_PLAYLIST_ID)
+              ) {
+                merged.set(t.id, t);
+              }
+            }
           }
+          return Array.from(merged.values());
         }
-        for (const t of tracks) {
-          if (
-            favorites.has(t.id) ||
-            privateMyPlaylistIds.has(t.id) ||
-            t.playlistIds.includes(PRIVATE_PLAYLIST_ID)
-          ) {
-            merged.set(t.id, t);
-          }
-        }
-        return Array.from(merged.values());
+        return cloudPersonalTracksByPlaylist[playlistId] || [];
       }
-      return tracks.filter((t) => t.playlistIds.includes(playlistId));
+
+      const merged = new Map<string, Track>();
+      for (const t of cloudSharedTracksByPlaylist[playlistId] || []) {
+        merged.set(t.id, t);
+      }
+      for (const t of tracks) {
+        if (t.playlistIds.includes(playlistId) && !merged.has(t.id)) {
+          merged.set(t.id, t);
+        }
+      }
+      return Array.from(merged.values());
     },
-    [tracks, favorites, privateMyPlaylistTracks, privateMyPlaylistIds]
+    [
+      user,
+      tracks,
+      favorites,
+      privateMyPlaylistTracks,
+      privateMyPlaylistIds,
+      cloudPersonalTracksByPlaylist,
+      cloudLikedTracks,
+      cloudSharedTracksByPlaylist,
+    ]
   );
 
-  const quickPlayPlaylist = useCallback((playlistId: string) => {
-    const baseTracks = getPlaylistTracks(playlistId);
-    const matchingTracks =
-      languageFilter === 'All'
-        ? baseTracks
-        : baseTracks.filter((t) => matchesLanguageFilter(t, languageFilter));
-    const pool = matchingTracks.length > 0 ? matchingTracks : baseTracks;
-    const listToPlay = sequencePlaylistBajaoStyle(pool, { seedKey: playlistId });
-    if (listToPlay.length > 0) {
-      playTrackFromList(listToPlay[0], listToPlay);
+  const quickPlayPlaylist = useCallback(
+    (playlistId: string) => {
+      const baseTracks = getPlaylistTracks(playlistId);
+      const matchingTracks =
+        languageFilter === 'All'
+          ? baseTracks
+          : baseTracks.filter((t) => matchesLanguageFilter(t, languageFilter));
+      const pool = matchingTracks.length > 0 ? matchingTracks : baseTracks;
+      const listToPlay = sequencePlaylistBajaoStyle(pool, { seedKey: playlistId });
+      if (listToPlay.length > 0) {
+        playTrackFromList(listToPlay[0], listToPlay);
+      }
+    },
+    [getPlaylistTracks, languageFilter, playTrackFromList]
+  );
+
+  const handleCreatePlaylist = async (input: {
+    title: string;
+    description: string;
+    visibility: 'private' | 'shared';
+    allowContributions: boolean;
+  }) => {
+    if (!user) {
+      setCreatePlaylistOpen(false);
+      setProfileOpen(true);
+      return;
     }
-  }, [getPlaylistTracks, languageFilter, playTrackFromList]);
+
+    if (input.visibility === 'private') {
+      const created = await createPersonalPlaylistInFirestore(user.uid, {
+        title: input.title,
+        description: input.description,
+      });
+      showCatalogNotice(`Created private playlist "${created.title}".`, 'private');
+      openPlaylist(created.id);
+      return;
+    }
+
+    const created = await createSharedPlaylistInFirestore(user, {
+      title: input.title,
+      description: input.description,
+      allowContributions: input.allowContributions,
+    });
+    showCatalogNotice(
+      `Created shared playlist "${created.title}" for all listeners.`,
+      'shared'
+    );
+    openPlaylist(created.id);
+  };
+
+  const handleDeletePersonalPlaylist = async (playlistId: string) => {
+    if (!user || !playlistId.startsWith('priv-')) return;
+    await deletePersonalPlaylistInFirestore(user.uid, playlistId);
+    showCatalogNotice('Private playlist removed.', 'private');
+    navigateToTab('playlists');
+  };
+
+  const handleClearRecentlyPlayed = () => {
+    setRecentlyPlayed([]);
+    if (user) {
+      void clearRecentlyPlayedInFirestore(user.uid).catch(() => {
+        // ignore transient errors
+      });
+    }
+  };
 
   const handleCreateVaultTrack = async (input: NewAuthorisedTrackInput) => {
     const data = await createVaultTrack(input);
-    if (data.scope === 'private') {
-      setPrivateMyPlaylistTracks((prev) => [
-        data.track,
-        ...prev.filter((t) => t.id !== data.track.id),
-      ]);
-      setPrivateMyPlaylistIds((prev) => {
-        const next = new Set(prev);
-        next.add(data.track.id);
-        savePrivateMyPlaylistIds(next);
-        return next;
-      });
-      setFavorites((prev) => {
-        const next = new Set(prev);
-        next.add(data.track.id);
-        return next;
-      });
-      showCatalogNotice(`"${data.track.title}" saved privately to My Playlist.`, 'private');
+    if (data.scope === 'private' || isPrivatePlaylistId(input.playlistId || '')) {
+      if (user) {
+        await addTrackToPersonalPlaylistInFirestore(
+          user.uid,
+          input.playlistId || PRIVATE_PLAYLIST_ID,
+          data.track
+        );
+      } else {
+        setPrivateMyPlaylistTracks((prev) => [
+          data.track,
+          ...prev.filter((t) => t.id !== data.track.id),
+        ]);
+        setPrivateMyPlaylistIds((prev) => {
+          const next = new Set(prev);
+          next.add(data.track.id);
+          savePrivateMyPlaylistIds(next);
+          return next;
+        });
+        setFavorites((prev) => {
+          const next = new Set(prev);
+          next.add(data.track.id);
+          return next;
+        });
+      }
+      showCatalogNotice(`"${data.track.title}" saved privately.`, 'private');
       return;
+    }
+
+    if (typeof data.version === 'number') {
+      catalogVersionRef.current = Math.max(catalogVersionRef.current, data.version);
+    }
+
+    if (user) {
+      const targetMeta = mergedPlaylists.find((p) => p.id === input.playlistId);
+      await contributeTrackToSharedPlaylistInFirestore(
+        user,
+        targetMeta || {
+          id: input.playlistId || 'top-50-hindi',
+          title: 'Shared Playlist',
+          subtitle: 'Shared Playlist',
+          description: 'Shared GullyGroove playlist',
+          mood: 'Shared Mix',
+          region: 'Pan-India',
+          coverUrl: data.track.coverUrl || COVER_ASSETS.heroStage,
+        },
+        data.track
+      ).catch(() => {
+        // Keep Express catalog update even if Firestore offline
+      });
     }
 
     setTracks((prev) => [data.track, ...prev]);
     if (data.playlists) setPlaylists(data.playlists);
     if (data.facets) setFacets(data.facets);
-    showCatalogNotice(`"${data.track.title}" published to shared GullyGroove catalog.`, 'shared');
+    showCatalogNotice(
+      `"${data.track.title}" published to shared GullyGroove catalog.`,
+      'shared'
+    );
   };
 
   const handleRemoveVaultTrack = async (trackId: string) => {
@@ -700,9 +1289,11 @@ export default function App() {
   };
 
   const playlistsWithLiveCounts = useMemo(() => {
-    return playlists.map((pl) => {
+    return mergedPlaylists.map((pl) => {
       const plTracks = getPlaylistTracks(pl.id);
-      if (plTracks.length === 0 && pl.id !== 'my-playlist') return pl;
+      if (plTracks.length === 0 && !isPrivatePlaylistId(pl.id) && !pl.id.startsWith('shared-')) {
+        return pl;
+      }
       const totalDurationSec = plTracks.reduce((acc, t) => acc + t.durationSec, 0);
       return {
         ...pl,
@@ -710,7 +1301,7 @@ export default function App() {
         totalDurationSec,
       };
     });
-  }, [playlists, getPlaylistTracks]);
+  }, [mergedPlaylists, getPlaylistTracks]);
 
   const playlistsWithLanguageCounts = useMemo(() => {
     if (languageFilter === 'All') return playlistsWithLiveCounts;
@@ -891,9 +1482,22 @@ export default function App() {
             <span className="text-xs font-semibold text-slate-300">
               Your Library
             </span>
-            <span className="text-[11px] font-mono-tabular text-slate-500">
-              {playlistsWithLiveCounts.length} playlists
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-mono-tabular text-slate-500">
+                {playlistsWithLiveCounts.length}
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  user ? setCreatePlaylistOpen(true) : setProfileOpen(true)
+                }
+                title={user ? 'Create Playlist' : 'Sign in to create playlists'}
+                aria-label="Create Playlist"
+                className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-white/[0.06] hover:bg-violet-500/25 text-slate-300 hover:text-white transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto scroll-smooth space-y-1 pt-2 pr-1">
@@ -979,7 +1583,7 @@ export default function App() {
             </button>
           </nav>
 
-          {/* Zone 3: Compact Request Song + Top-Right Settings */}
+          {/* Zone 3: Compact Request Song + Top-Right Menu */}
           <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
@@ -991,15 +1595,12 @@ export default function App() {
               <Music2 className="w-3 h-3 text-violet-100 shrink-0" />
               <span>Request Song</span>
             </button>
-            <button
-              type="button"
-              onClick={() => setSettingsOpen(true)}
-              aria-label="Open Settings"
-              title="Settings"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-slate-200 hover:text-white transition-colors shrink-0"
-            >
-              <Settings className="w-4 h-4" />
-            </button>
+            <HeaderMenu
+              theme={theme}
+              onOpenProfile={() => setProfileOpen(true)}
+              onOpenSettings={() => setSettingsOpen(true)}
+              onOpenAbout={() => setAboutOpen(true)}
+            />
           </div>
         </header>
 
@@ -1031,15 +1632,13 @@ export default function App() {
               <Music2 className="w-2.5 h-2.5 text-violet-100 shrink-0" />
               <span>Request Song</span>
             </button>
-            <button
-              type="button"
-              onClick={() => setSettingsOpen(true)}
-              aria-label="Open Settings"
-              title="Settings"
-              className="inline-flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-lg bg-white/[0.08] hover:bg-white/[0.14] border border-white/10 text-slate-200 hover:text-white transition-colors shrink-0"
-            >
-              <Settings className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-            </button>
+            <HeaderMenu
+              theme={theme}
+              compact
+              onOpenProfile={() => setProfileOpen(true)}
+              onOpenSettings={() => setSettingsOpen(true)}
+              onOpenAbout={() => setAboutOpen(true)}
+            />
           </div>
         </header>
 
@@ -1128,7 +1727,7 @@ export default function App() {
                   <PWAInstallButton variant="ios-card" />
 
                   {/* Recently Played Songs Strip (appears cleanly once user has played music) */}
-                  {recentlyPlayed.length > 0 ? (
+                  {activeRecentlyPlayed.length > 0 ? (
                     <section className="space-y-3.5">
                       <div className="flex items-center justify-between">
                         <div>
@@ -1141,7 +1740,7 @@ export default function App() {
                         </div>
                         <button
                           type="button"
-                          onClick={() => setRecentlyPlayed([])}
+                          onClick={handleClearRecentlyPlayed}
                           className="text-xs font-medium text-slate-400 hover:text-white whitespace-nowrap shrink-0"
                         >
                           Clear History
@@ -1149,13 +1748,13 @@ export default function App() {
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
-                        {recentlyPlayed.slice(0, 8).map((track) => {
+                        {activeRecentlyPlayed.slice(0, 8).map((track) => {
                           const active = currentTrack?.id === track.id;
                           return (
                             <button
                               key={track.id}
                               type="button"
-                              onClick={() => playTrackFromList(track, recentlyPlayed)}
+                              onClick={() => playTrackFromList(track, activeRecentlyPlayed)}
                               className={`group flex items-center gap-3 rounded-xl p-2.5 text-left border transition-all duration-150 ${
                                 active
                                   ? 'bg-gradient-to-r from-violet-600/20 to-blue-500/15 border-violet-500/40'
@@ -1391,6 +1990,88 @@ export default function App() {
                         {activePlaylist.playlist.description}
                       </p>
 
+                      {isPrivatePlaylistId(activePlaylist.playlist.id) ? (
+                        <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 pt-0.5">
+                          <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/15 border border-amber-400/30 px-2.5 py-1 text-[11px] font-medium text-amber-200">
+                            <Lock className="w-3 h-3" />
+                            Private · Only visible to you
+                          </span>
+                          {user && activePlaylist.playlist.id.startsWith('priv-') ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void handleDeletePersonalPlaylist(activePlaylist.playlist!.id)
+                              }
+                              className="inline-flex items-center gap-1 rounded-lg bg-rose-500/15 border border-rose-400/30 px-2.5 py-1 text-[11px] font-medium text-rose-200 hover:bg-rose-500/25 transition-colors"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              Delete Playlist
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : activePlaylistContributors.length > 0 ||
+                        cloudSharedPlaylists.some(
+                          (p) =>
+                            p.id === activePlaylist.playlist?.id && p.ownerId === user?.uid
+                        ) ? (
+                        <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 pt-0.5">
+                          {activePlaylistContributors.length > 0 ? (
+                            <div className="inline-flex flex-wrap items-center gap-1.5 rounded-lg bg-white/[0.06] border border-white/10 px-2.5 py-1 text-[11px] text-slate-300">
+                              <Users className="w-3 h-3 text-emerald-400 shrink-0" />
+                              <span>Contributors:</span>
+                              {activePlaylistContributors.slice(0, 4).map((contrib) => (
+                                <span
+                                  key={contrib.uid}
+                                  className="inline-flex items-center gap-1 rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[10px] text-slate-200"
+                                >
+                                  {contrib.photoURL ? (
+                                    <img
+                                      src={contrib.photoURL}
+                                      alt={contrib.displayName}
+                                      referrerPolicy="no-referrer"
+                                      className="h-3.5 w-3.5 rounded-full object-cover"
+                                    />
+                                  ) : null}
+                                  <span>{contrib.displayName.split(' ')[0]}</span>
+                                  <span className="text-slate-400 font-mono-tabular">
+                                    ({contrib.contributionCount})
+                                  </span>
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
+                          {(() => {
+                            const sharedMeta = cloudSharedPlaylists.find(
+                              (p) => p.id === activePlaylist.playlist?.id
+                            );
+                            if (!sharedMeta || !user || sharedMeta.ownerId !== user.uid) {
+                              return null;
+                            }
+                            return (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void updateSharedPlaylistPermissionsInFirestore(
+                                    sharedMeta.id,
+                                    !sharedMeta.allowContributions
+                                  )
+                                }
+                                className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                                  sharedMeta.allowContributions
+                                    ? 'bg-emerald-500/15 border-emerald-400/30 text-emerald-200 hover:bg-emerald-500/25'
+                                    : 'bg-amber-500/15 border-amber-400/30 text-amber-200 hover:bg-amber-500/25'
+                                }`}
+                              >
+                                <Globe className="w-3 h-3" />
+                                {sharedMeta.allowContributions
+                                  ? 'Open to Contributions'
+                                  : 'Owner-Only Edits'}
+                              </button>
+                            );
+                          })()}
+                        </div>
+                      ) : null}
+
                       <div className="flex flex-wrap items-center justify-center md:justify-start gap-2.5 pt-2">
                         <button
                           type="button"
@@ -1543,7 +2224,7 @@ export default function App() {
                               index={idx}
                               isCurrent={currentTrack?.id === track.id}
                               isPlaying={isPlaying}
-                              isFavorite={favorites.has(track.id)}
+                              isFavorite={activeFavorites.has(track.id)}
                               playlists={playlistsWithLiveCounts}
                               onPlayToggle={(t) =>
                                 playTrackFromList(t, activePlaylist.displayedTracks)
@@ -1582,9 +2263,9 @@ export default function App() {
                     key={activePlaylist.playlist.id}
                     playlist={activePlaylist.playlist}
                     playlistTracks={activePlaylist.allTracks}
-                    allTracks={tracks}
-                    favorites={favorites}
-                    recentlyPlayed={recentlyPlayed}
+                    allTracks={allKnownTracks}
+                    favorites={activeFavorites}
+                    recentlyPlayed={activeRecentlyPlayed}
                     currentTrackId={currentTrack?.id || null}
                     isPlaying={isPlaying}
                     onPlayTrack={playTrackFromList}
@@ -1597,11 +2278,12 @@ export default function App() {
               {activeTab === 'search' ? (
                 <SearchExploreView
                   playlists={playlistsWithLiveCounts}
+                  allTracks={allKnownTracks}
                   providers={providers}
                   facets={facets}
                   currentTrackId={currentTrack?.id || null}
                   isPlaying={isPlaying}
-                  favorites={favorites}
+                  favorites={activeFavorites}
                   onPlayTrack={playTrackFromList}
                   onToggleFavorite={handleToggleFavorite}
                   onAddToPlaylist={handleAddToPlaylist}
@@ -1684,11 +2366,11 @@ export default function App() {
       <PlayerBar
         currentTrack={currentTrack}
         queue={queue}
-        recentlyPlayed={recentlyPlayed}
+        recentlyPlayed={activeRecentlyPlayed}
         isPlaying={isPlaying}
         shuffle={shuffle}
         repeatMode={repeatMode}
-        isFavorite={currentTrack ? favorites.has(currentTrack.id) : false}
+        isFavorite={currentTrack ? activeFavorites.has(currentTrack.id) : false}
         embedTrack={metadataTrack}
         studioConsoleOpen={studioConsoleOpen}
         onSetStudioConsoleOpen={setStudioConsoleOpen}
@@ -1706,7 +2388,7 @@ export default function App() {
         }
         onToggleFavorite={handleToggleFavorite}
         onSelectTrack={(track) => playTrackFromList(track, queue)}
-        onClearRecentlyPlayed={() => setRecentlyPlayed([])}
+        onClearRecentlyPlayed={handleClearRecentlyPlayed}
         onPlaybackEnded={handleNext}
         onSetPlayingState={setIsPlaying}
         onOpenTuneRequest={() => setRequestModalOpen(true)}
@@ -1729,7 +2411,7 @@ export default function App() {
       {/* Groovy Floating Alexa-Style Voice Assistant */}
       <GroovyAssistant
         playlists={playlistsWithLiveCounts}
-        tracks={tracks}
+        tracks={allKnownTracks}
         currentTrack={currentTrack}
         isPlaying={isPlaying}
         shuffle={shuffle}
@@ -1737,7 +2419,7 @@ export default function App() {
         volume={volume}
         muted={muted}
         studioConsoleOpen={studioConsoleOpen}
-        favorites={favorites}
+        favorites={activeFavorites}
         onPlayTrack={playTrackFromList}
         onPlayPlaylist={quickPlayPlaylist}
         onSetPlaying={setIsPlaying}
@@ -1770,7 +2452,7 @@ export default function App() {
         onClose={() => setRequestModalOpen(false)}
       />
 
-      {/* Settings Modal (Theme Dark/Light, Crossfade & DJ Mode, Notifications, About Groovy) */}
+      {/* Settings Modal (Theme Dark/Light, Crossfade & DJ Mode, Notifications) */}
       <SettingsModal
         open={settingsOpen}
         theme={theme}
@@ -1780,6 +2462,33 @@ export default function App() {
         onChangeNotifications={setNotifications}
         onChangeCrossfadeSettings={setCrossfadeSettings}
         onClose={() => setSettingsOpen(false)}
+      />
+
+      {/* User Profile & Google Sign-In Modal */}
+      <ProfileModal
+        open={profileOpen}
+        theme={theme}
+        personalPlaylistsCount={user ? Math.max(1, cloudPersonalPlaylists.length) : 1}
+        likedCount={activeFavorites.size}
+        recentlyPlayedCount={activeRecentlyPlayed.length}
+        onOpenCreatePlaylist={() => setCreatePlaylistOpen(true)}
+        onClose={() => setProfileOpen(false)}
+      />
+
+      {/* About GullyGroove & Groovy Modal */}
+      <AboutModal
+        open={aboutOpen}
+        theme={theme}
+        playlistCount={playlistsWithLiveCounts.length}
+        onClose={() => setAboutOpen(false)}
+      />
+
+      {/* Create Personal (Private) or Shared Playlist Modal */}
+      <CreatePlaylistModal
+        open={createPlaylistOpen}
+        theme={theme}
+        onCreate={handleCreatePlaylist}
+        onClose={() => setCreatePlaylistOpen(false)}
       />
 
       {catalogNotice ? (

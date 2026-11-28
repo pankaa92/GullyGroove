@@ -1,11 +1,12 @@
 import { Globe, RotateCcw, Search } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { searchCatalog } from '../services/clientCatalog';
 import type { PlaylistWithStats, ProviderStatus, Track } from '../types/music';
 import { TrackRow } from './TrackRow';
 
 interface SearchExploreViewProps {
   playlists: PlaylistWithStats[];
+  allTracks: Track[];
   providers: ProviderStatus[];
   facets: {
     artists: string[];
@@ -23,6 +24,7 @@ interface SearchExploreViewProps {
 
 export function SearchExploreView({
   playlists,
+  allTracks,
   currentTrackId,
   isPlaying,
   favorites,
@@ -93,6 +95,58 @@ export function SearchExploreView({
     setQuery('');
   };
 
+  const liveTracksById = useMemo(() => {
+    const map = new Map<string, Track>();
+    for (const t of allTracks) {
+      map.set(t.id, t);
+    }
+    return map;
+  }, [allTracks]);
+
+  const displayedExternalTracks = useMemo(
+    () =>
+      externalTracks.map((t) => {
+        const live = liveTracksById.get(t.id);
+        if (!live) return t;
+        return {
+          ...t,
+          playlistIds: Array.from(
+            new Set([...(t.playlistIds || []), ...(live.playlistIds || [])])
+          ),
+        };
+      }),
+    [externalTracks, liveTracksById]
+  );
+
+  const displayedLocalTracks = useMemo(() => {
+    const map = new Map<string, Track>();
+    for (const t of localTracks) {
+      const live = liveTracksById.get(t.id);
+      map.set(
+        t.id,
+        live
+          ? {
+              ...t,
+              playlistIds: Array.from(
+                new Set([...(t.playlistIds || []), ...(live.playlistIds || [])])
+              ),
+            }
+          : t
+      );
+    }
+    if (trimmedQuery) {
+      const qLower = trimmedQuery.toLowerCase();
+      for (const t of allTracks) {
+        if (map.has(t.id)) continue;
+        const hay = `${t.title} ${t.artist} ${t.album} ${t.genre} ${t.language}`.toLowerCase();
+        if (hay.includes(qLower)) {
+          map.set(t.id, t);
+        }
+      }
+    }
+    return Array.from(map.values());
+  }, [localTracks, liveTracksById, allTracks, trimmedQuery]);
+
   return (
     <section className="space-y-6 gg-view-enter">
       <header className="space-y-1">
@@ -137,9 +191,9 @@ export function SearchExploreView({
       {hasSearchQuery ? (
         <div className="flex items-center justify-between text-xs text-slate-400">
           <span className="font-mono-tabular">
-            Showing {localTracks.length} curated track matches
+            Showing {displayedLocalTracks.length} curated track matches
             {includeExternal && trimmedQuery.length >= 2
-              ? ` · ${externalTracks.length} online discovery matches`
+              ? ` · ${displayedExternalTracks.length} online discovery matches`
               : ''}
           </span>
           <button
@@ -186,7 +240,7 @@ export function SearchExploreView({
                   </p>
                 </div>
                 <span className="text-xs font-mono-tabular text-slate-500">
-                  {externalTracks.length} results
+                  {displayedExternalTracks.length} results
                 </span>
               </div>
 
@@ -199,13 +253,13 @@ export function SearchExploreView({
                     />
                   ))}
                 </div>
-              ) : externalTracks.length === 0 ? (
+              ) : displayedExternalTracks.length === 0 ? (
                 <p className="text-xs text-slate-500 py-3">
                   No online discovery tracks found for “{trimmedQuery}”.
                 </p>
               ) : (
                 <div className="divide-y divide-white/[0.04]">
-                  {externalTracks.map((track, idx) => (
+                  {displayedExternalTracks.map((track, idx) => (
                     <TrackRow
                       key={track.id}
                       track={track}
@@ -214,7 +268,7 @@ export function SearchExploreView({
                       isPlaying={isPlaying}
                       isFavorite={favorites.has(track.id)}
                       playlists={playlists}
-                      onPlayToggle={(t) => onPlayTrack(t, externalTracks)}
+                      onPlayToggle={(t) => onPlayTrack(t, displayedExternalTracks)}
                       onToggleFavorite={onToggleFavorite}
                       onAddToPlaylist={onAddToPlaylist}
                     />
@@ -231,7 +285,7 @@ export function SearchExploreView({
                 Search Results
               </h2>
               <span className="text-xs font-mono-tabular text-slate-500">
-                {localTracks.length} tracks
+                {displayedLocalTracks.length} tracks
               </span>
             </div>
 
@@ -244,7 +298,7 @@ export function SearchExploreView({
                   />
                 ))}
               </div>
-            ) : localTracks.length === 0 ? (
+            ) : displayedLocalTracks.length === 0 ? (
               <div className="py-12 text-center rounded-2xl bg-[#12121B] border border-white/[0.06]">
                 <p className="text-sm font-medium text-slate-300">
                   No curated tracks matched “{trimmedQuery}”.
@@ -263,7 +317,7 @@ export function SearchExploreView({
             ) : (
               <>
                 <div className="divide-y divide-white/[0.04]">
-                  {localTracks
+                  {displayedLocalTracks
                     .slice(0, visibleLocalCount)
                     .map((track, idx) => (
                       <TrackRow
@@ -274,28 +328,28 @@ export function SearchExploreView({
                         isPlaying={isPlaying}
                         isFavorite={favorites.has(track.id)}
                         playlists={playlists}
-                        onPlayToggle={(t) => onPlayTrack(t, localTracks)}
+                        onPlayToggle={(t) => onPlayTrack(t, displayedLocalTracks)}
                         onToggleFavorite={onToggleFavorite}
                         onAddToPlaylist={onAddToPlaylist}
                       />
                     ))}
                 </div>
 
-                {localTracks.length > visibleLocalCount ? (
+                {displayedLocalTracks.length > visibleLocalCount ? (
                   <div className="pt-4 flex flex-wrap items-center justify-center gap-3">
                     <button
                       type="button"
                       onClick={() => setVisibleLocalCount((prev) => prev + 100)}
                       className="inline-flex h-10 items-center justify-center px-5 rounded-xl bg-white/[0.07] hover:bg-white/[0.12] border border-white/10 text-xs font-semibold text-white transition-colors"
                     >
-                      Load 100 More ({visibleLocalCount} of {localTracks.length})
+                      Load 100 More ({visibleLocalCount} of {displayedLocalTracks.length})
                     </button>
                     <button
                       type="button"
-                      onClick={() => setVisibleLocalCount(localTracks.length)}
+                      onClick={() => setVisibleLocalCount(displayedLocalTracks.length)}
                       className="inline-flex h-10 items-center justify-center px-4 rounded-xl text-xs font-medium text-blue-300 hover:text-blue-200 transition-colors"
                     >
-                      Show All {localTracks.length} Songs
+                      Show All {displayedLocalTracks.length} Songs
                     </button>
                   </div>
                 ) : null}

@@ -1,0 +1,775 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated GullyGroove user profile isolated to the owning Firebase UID.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the user",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "User display name from Google Sign-In",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "User email address (PII, owner-only)",
+          "minLength": 3,
+          "maxLength": 254
+        },
+        "photoURL": {
+          "type": "string",
+          "format": "uri",
+          "description": "Profile photo URL",
+          "maxLength": 1000
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of account creation"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last profile update"
+        }
+      },
+      "required": ["uid", "displayName", "email", "photoURL", "createdAt", "updatedAt"]
+    },
+    "UserPreferences": {
+      "title": "UserPreferences",
+      "description": "Per-user playback, theme, crossfade, and notification preferences.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "theme": {
+          "type": "string",
+          "enum": ["dark", "light"],
+          "maxLength": 16
+        },
+        "crossfadeSec": {
+          "type": "number"
+        },
+        "djCrossfadeSec": {
+          "type": "number"
+        },
+        "djMode": {
+          "type": "boolean"
+        },
+        "nowPlayingAlerts": {
+          "type": "boolean"
+        },
+        "curatedPlaylistDrops": {
+          "type": "boolean"
+        },
+        "groovyVoiceTips": {
+          "type": "boolean"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerId",
+        "theme",
+        "crossfadeSec",
+        "djCrossfadeSec",
+        "djMode",
+        "nowPlayingAlerts",
+        "curatedPlaylistDrops",
+        "groovyVoiceTips",
+        "updatedAt"
+      ]
+    },
+    "PersonalPlaylist": {
+      "title": "PersonalPlaylist",
+      "description": "Private user-owned playlist container (My Playlist or custom private playlists).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "subtitle": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "isPrivate": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "ownerId", "title", "isPrivate", "createdAt", "updatedAt"]
+    },
+    "PersonalPlaylistTrack": {
+      "title": "PersonalPlaylistTrack",
+      "description": "Track saved inside a user's private personal playlist.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "playlistId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "trackId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "artist": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "album": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "genre": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "language": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "durationSec": {
+          "type": "number"
+        },
+        "bpm": {
+          "type": "number"
+        },
+        "year": {
+          "type": "number"
+        },
+        "coverUrl": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "providerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "providerName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "licenseType": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "licenseSummary": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "playbackRights": {
+          "type": "string",
+          "enum": ["full-stream", "embed-only", "metadata-only"],
+          "maxLength": 32
+        },
+        "streamUrl": {
+          "type": "string",
+          "maxLength": 1500
+        },
+        "embedId": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "externalUrl": {
+          "type": "string",
+          "maxLength": 1500
+        },
+        "attribution": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "isUserAdded": {
+          "type": "boolean"
+        },
+        "addedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerId",
+        "playlistId",
+        "trackId",
+        "title",
+        "artist",
+        "durationSec",
+        "coverUrl",
+        "providerId",
+        "playbackRights",
+        "streamUrl",
+        "addedAt"
+      ]
+    },
+    "LikedSong": {
+      "title": "LikedSong",
+      "description": "Liked track record scoped to the authenticated Firebase UID.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "trackId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "artist": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "album": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "genre": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "language": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "durationSec": {
+          "type": "number"
+        },
+        "bpm": {
+          "type": "number"
+        },
+        "year": {
+          "type": "number"
+        },
+        "coverUrl": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "providerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "providerName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "licenseType": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "licenseSummary": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "playbackRights": {
+          "type": "string",
+          "enum": ["full-stream", "embed-only", "metadata-only"],
+          "maxLength": 32
+        },
+        "streamUrl": {
+          "type": "string",
+          "maxLength": 1500
+        },
+        "embedId": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "externalUrl": {
+          "type": "string",
+          "maxLength": 1500
+        },
+        "attribution": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "likedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerId",
+        "trackId",
+        "title",
+        "artist",
+        "durationSec",
+        "coverUrl",
+        "providerId",
+        "playbackRights",
+        "streamUrl",
+        "likedAt"
+      ]
+    },
+    "RecentlyPlayedTrack": {
+      "title": "RecentlyPlayedTrack",
+      "description": "Recently played track record scoped to the authenticated Firebase UID.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "trackId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "artist": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "album": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "genre": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "language": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "durationSec": {
+          "type": "number"
+        },
+        "bpm": {
+          "type": "number"
+        },
+        "year": {
+          "type": "number"
+        },
+        "coverUrl": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "providerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "providerName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "licenseType": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "licenseSummary": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "playbackRights": {
+          "type": "string",
+          "enum": ["full-stream", "embed-only", "metadata-only"],
+          "maxLength": 32
+        },
+        "streamUrl": {
+          "type": "string",
+          "maxLength": 1500
+        },
+        "embedId": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "externalUrl": {
+          "type": "string",
+          "maxLength": 1500
+        },
+        "attribution": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "playedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerId",
+        "trackId",
+        "title",
+        "artist",
+        "durationSec",
+        "coverUrl",
+        "providerId",
+        "playbackRights",
+        "streamUrl",
+        "playedAt"
+      ]
+    },
+    "SharedPlaylist": {
+      "title": "SharedPlaylist",
+      "description": "Shared community or curated playlist accessible to all GullyGroove listeners.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "subtitle": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "mood": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "region": {
+          "type": "string",
+          "enum": ["India", "Pan-India", "Global"],
+          "maxLength": 24
+        },
+        "coverUrl": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "isShared": {
+          "type": "boolean"
+        },
+        "allowContributions": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "ownerId",
+        "ownerName",
+        "isShared",
+        "allowContributions",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SharedPlaylistTrack": {
+      "title": "SharedPlaylistTrack",
+      "description": "Track contributed to a shared playlist with contributor tracking.",
+      "type": "object",
+      "properties": {
+        "trackId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "playlistId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "artist": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "album": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "genre": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "language": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "durationSec": {
+          "type": "number"
+        },
+        "bpm": {
+          "type": "number"
+        },
+        "year": {
+          "type": "number"
+        },
+        "coverUrl": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "providerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "providerName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "licenseType": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "licenseSummary": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "playbackRights": {
+          "type": "string",
+          "enum": ["full-stream", "embed-only", "metadata-only"],
+          "maxLength": 32
+        },
+        "streamUrl": {
+          "type": "string",
+          "maxLength": 1500
+        },
+        "embedId": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "externalUrl": {
+          "type": "string",
+          "maxLength": 1500
+        },
+        "attribution": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "addedByUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "addedByName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "isShared": {
+          "type": "boolean"
+        },
+        "isUserAdded": {
+          "type": "boolean"
+        },
+        "addedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "trackId",
+        "playlistId",
+        "title",
+        "artist",
+        "durationSec",
+        "coverUrl",
+        "providerId",
+        "playbackRights",
+        "streamUrl",
+        "addedByUid",
+        "addedByName",
+        "isShared",
+        "addedAt"
+      ]
+    },
+    "PlaylistContributor": {
+      "title": "PlaylistContributor",
+      "description": "Contributor tracking entry for a shared playlist.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "playlistId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "photoURL": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "role": {
+          "type": "string",
+          "enum": ["owner", "contributor"],
+          "maxLength": 24
+        },
+        "contributionCount": {
+          "type": "number"
+        },
+        "isShared": {
+          "type": "boolean"
+        },
+        "firstContributedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "lastContributedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "playlistId",
+        "displayName",
+        "photoURL",
+        "role",
+        "contributionCount",
+        "isShared",
+        "firstContributedAt",
+        "lastContributedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Owner-only user profile document containing display name, email, photo URL, and timestamps."
+    },
+    "/users/{userId}/preferences/{prefId}": {
+      "schema": { "$ref": "#/entities/UserPreferences" },
+      "description": "Owner-only user theme, crossfade, DJ mode, and notification preferences."
+    },
+    "/users/{userId}/personalPlaylists/{playlistId}": {
+      "schema": { "$ref": "#/entities/PersonalPlaylist" },
+      "description": "Private personal playlists owned by the user."
+    },
+    "/users/{userId}/personalPlaylists/{playlistId}/tracks/{trackId}": {
+      "schema": { "$ref": "#/entities/PersonalPlaylistTrack" },
+      "description": "Tracks saved inside a user's private personal playlist."
+    },
+    "/users/{userId}/likedSongs/{trackId}": {
+      "schema": { "$ref": "#/entities/LikedSong" },
+      "description": "Private liked/hearted songs for the authenticated user."
+    },
+    "/users/{userId}/recentlyPlayed/{trackId}": {
+      "schema": { "$ref": "#/entities/RecentlyPlayedTrack" },
+      "description": "Private recently played history for the authenticated user."
+    },
+    "/sharedPlaylists/{playlistId}": {
+      "schema": { "$ref": "#/entities/SharedPlaylist" },
+      "description": "Shared community/curated playlists readable by all users and configurable by owners."
+    },
+    "/sharedPlaylists/{playlistId}/sharedTracks/{trackId}": {
+      "schema": { "$ref": "#/entities/SharedPlaylistTrack" },
+      "description": "Tracks contributed to shared playlists with contributor metadata."
+    },
+    "/sharedPlaylists/{playlistId}/contributors/{contributorUid}": {
+      "schema": { "$ref": "#/entities/PlaylistContributor" },
+      "description": "Contributor tracking per shared playlist."
+    }
+  }
+}

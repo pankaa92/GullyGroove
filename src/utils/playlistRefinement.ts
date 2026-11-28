@@ -79,15 +79,33 @@ export function refineTrackPlaylistIds(track: Track): string[] {
     }
   }
 
-  // Rule 4: Regional & devotional consistency
-  if (Array.from(SOUTH_LANGS).some((s) => lang.includes(s))) {
-    ids.add('south-hits');
+  // Rule 4: Regional & devotional consistency + All in One (sab-chalega)
+  const isSouth = Array.from(SOUTH_LANGS).some((s) => lang.includes(s));
+  const isBhojpuri = lang.includes('bhojpuri');
+  const isPunjabi = lang.includes('punjabi');
+
+  if (isPunjabi) {
+    ids.add('party-dj-hits');
+    ids.add('sab-chalega');
   }
-  if (lang.includes('bhojpuri')) {
+  if (isBhojpuri) {
     ids.add('bhojpuri-hits');
+    ids.add('sab-chalega');
   }
-  if (isDevotionalText && !isExplicitDjOrParty) {
+  if (isSouth) {
+    ids.add('south-hits');
+    ids.add('sab-chalega');
+  }
+  if ((isDevotionalText && !isExplicitDjOrParty) || isDevotionalTrack) {
     ids.add('bhakti-bhajan-aarti');
+    ids.add('sab-chalega');
+  }
+
+  // Rule 5: Top Hindi Songs must contain strictly Hindi tracks (no Punjabi, Bhojpuri, South, God/Devotional, or other languages)
+  const isPureHindiLang = lang === 'hindi' || lang === 'urdu-hindi';
+  if (ids.has('top-50-hindi') && (!isPureHindiLang || isDevotionalTrack)) {
+    ids.delete('top-50-hindi');
+    ids.add('sab-chalega');
   }
 
   return Array.from(ids);

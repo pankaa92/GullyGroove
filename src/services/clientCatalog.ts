@@ -28,6 +28,10 @@ export interface SearchCatalogResult {
 
 export const PRIVATE_PLAYLIST_ID = 'my-playlist';
 
+export function isPrivatePlaylistId(playlistId: string): boolean {
+  return playlistId === PRIVATE_PLAYLIST_ID || playlistId.startsWith('priv-');
+}
+
 const STATIC_TRACKS_KEY = 'gg_static_tracks_v1';
 const STATIC_ASSIGNMENTS_KEY = 'gg_static_assignments_v1';
 const PRIVATE_MY_PLAYLIST_TRACKS_KEY = 'gg_private_my_playlist_tracks_v1';
@@ -42,7 +46,7 @@ function isJsonResponse(res: Response): boolean {
 
 function checkStaticHostResponse(res: Response): void {
   const ct = res.headers.get('content-type') || '';
-  if (res.status === 404 || (res.ok && ct.includes('text/html'))) {
+  if (ct.includes('text/html') || (res.status === 404 && !ct.includes('application/json'))) {
     confirmedStaticOnlyHost = true;
   }
 }
@@ -51,7 +55,7 @@ export function isServerSyncAvailable(): boolean {
   return !confirmedStaticOnlyHost;
 }
 
-function toDirectAudiusStreamUrl(streamUrl: string): string {
+export function toDirectAudiusStreamUrl(streamUrl: string): string {
   const match = streamUrl.match(/^\/api\/audius\/stream\/([a-zA-Z0-9_-]+)/);
   if (match) {
     return `https://api.audius.co/v1/tracks/${encodeURIComponent(match[1])}/stream?app_name=GullyGroove`;
@@ -251,13 +255,32 @@ function getStaticProviders(): ProviderStatus[] {
   ];
 }
 
-export async function fetchCatalogOverview(): Promise<CatalogOverviewData> {
+export interface CatalogOverviewWithVersion extends CatalogOverviewData {
+  version?: number;
+}
+
+export async function fetchCatalogVersion(): Promise<number | null> {
+  if (confirmedStaticOnlyHost) return null;
+  try {
+    const res = await fetch('/api/catalog/version', { cache: 'no-store' });
+    if (isJsonResponse(res)) {
+      const data = (await res.json()) as { version?: number };
+      return typeof data.version === 'number' ? data.version : null;
+    }
+    checkStaticHostResponse(res);
+  } catch {
+    // Ignore transient network errors
+  }
+  return null;
+}
+
+export async function fetchCatalogOverview(): Promise<CatalogOverviewWithVersion> {
   if (!confirmedStaticOnlyHost) {
     try {
       const res = await fetch('/api/catalog/overview', { cache: 'no-store' });
       if (isJsonResponse(res)) {
         confirmedStaticOnlyHost = false;
-        return (await res.json()) as CatalogOverviewData;
+        return (await res.json()) as CatalogOverviewWithVersion;
       }
       checkStaticHostResponse(res);
     } catch {
@@ -417,6 +440,7 @@ export async function searchCatalog(
 
 export interface AssignPlaylistResult {
   scope: 'private' | 'shared';
+  version?: number;
   track: Track;
   playlists?: PlaylistWithStats[];
   facets?: CatalogOverviewData['facets'];
@@ -426,10 +450,11 @@ export async function assignTrackToPlaylist(
   playlistId: string,
   trackId: string,
   discoveredTrack?: Track,
-  existingSharedTracks: Track[] = []
+  existingSharedTracks: Track[] = [],
+  playlistMeta?: Partial<PlaylistWithStats>
 ): Promise<AssignPlaylistResult | null> {
-  // My Playlist is strictly private to the owner's browser — never upload to the shared server
-  if (playlistId === PRIVATE_PLAYLIST_ID) {
+  // My Playlist & private playlists stay strictly private — never upload to the shared server
+  if (isPrivatePlaylistId(playlistId)) {
     const privateIds = loadPrivateMyPlaylistIds();
     privateIds.add(trackId);
     savePrivateMyPlaylistIds(privateIds);
@@ -448,7 +473,7 @@ export async function assignTrackToPlaylist(
       if (!isEligibleCatalogTrack(discoveredTrack)) return null;
       privateTrack = {
         ...discoveredTrack,
-        playlistIds: [PRIVATE_PLAYLIST_ID],
+        playlistIds: [playlistId],
       };
       savePrivateMyPlaylistTracks([privateTrack, ...privateTracks]);
     }
@@ -465,10 +490,11 @@ export async function assignTrackToPlaylist(
       const res = await fetch(`/api/playlists/${encodeURIComponent(playlistId)}/tracks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ trackId, track: discoveredTrack }),
+        body: JSON.stringify({ trackId, track: discoveredTrack, playlistMeta }),
       });
       if (isJsonResponse(res)) {
         const data = (await res.json()) as {
+          version?: number;
           track: Track;
           playlists: PlaylistWithStats[];
           facets: CatalogOverviewData['facets'];
@@ -479,8 +505,11 @@ export async function assignTrackToPlaylist(
         };
       }
       checkStaticHostResponse(res);
+      if (res.status >= 400 && !res.headers.get('content-type')?.includes('text/html')) {
+        return null;
+      }
     } catch {
-      // Static fallback below
+      // Static fallback below when network/server is unreachable
     }
   }
 
@@ -495,7 +524,7 @@ export async function assignTrackToPlaylist(
       ...normalizeStaticTrack(discoveredTrack),
       playlistIds: Array.from(
         new Set([...refineTrackPlaylistIds(discoveredTrack), playlistId])
-      ).filter((pid) => pid !== PRIVATE_PLAYLIST_ID),
+      ).filter((pid) => !isPrivatePlaylistId(pid)),
     };
     stored.unshift(targetTrack);
     try {
@@ -508,7 +537,7 @@ export async function assignTrackToPlaylist(
 
   const updatedPlaylists = Array.from(
     new Set([...(targetTrack.playlistIds || []), playlistId])
-  ).filter((pid) => pid !== PRIVATE_PLAYLIST_ID);
+  ).filter((pid) => !isPrivatePlaylistId(pid));
   assignments[trackId] = updatedPlaylists;
   try {
     localStorage.setItem(STATIC_ASSIGNMENTS_KEY, JSON.stringify(assignments));
@@ -532,11 +561,13 @@ export async function assignTrackToPlaylist(
 
 export async function createVaultTrack(input: NewAuthorisedTrackInput): Promise<{
   scope: 'private' | 'shared';
+  version?: number;
   track: Track;
   playlists?: PlaylistWithStats[];
   facets?: CatalogOverviewData['facets'];
 }> {
-  if (input.playlistId === PRIVATE_PLAYLIST_ID) {
+  if (isPrivatePlaylistId(input.playlistId || '')) {
+    const targetPrivatePid = input.playlistId || PRIVATE_PLAYLIST_ID;
     const created: Track = {
       id: `vault-priv-${Date.now().toString(36)}`,
       title: input.title.trim(),
@@ -555,7 +586,7 @@ export async function createVaultTrack(input: NewAuthorisedTrackInput): Promise<
       playbackRights: 'full-stream',
       streamUrl: input.streamUrl.trim(),
       attribution: input.attribution?.trim() || `${input.artist.trim()} (${input.licenseType})`,
-      playlistIds: [PRIVATE_PLAYLIST_ID],
+      playlistIds: [targetPrivatePid],
       plays: 1,
       isUserAdded: true,
     };

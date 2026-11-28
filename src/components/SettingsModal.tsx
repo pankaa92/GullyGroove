@@ -2,15 +2,11 @@ import {
   Bell,
   Check,
   Disc3,
-  Info,
-  Mic,
   Moon,
-  Sparkles,
   Sun,
   X,
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
-import groovyAvatarUrl from '../assets/images/groovy_girl_avatar_1795443866890.jpg';
 import {
   CROSSFADE_MAX_SEC,
   CROSSFADE_MIN_SEC,
@@ -111,7 +107,7 @@ export function SettingsModal({
                 isLight ? 'text-slate-500' : 'text-slate-400'
               }`}
             >
-              Appearance, notifications &amp; Groovy assistant info
+              Appearance, crossfade &amp; notifications
             </p>
           </div>
           <button
@@ -481,97 +477,6 @@ export function SettingsModal({
                   </div>
                 );
               })}
-            </div>
-          </section>
-
-          {/* 3. About Groovy Section */}
-          <section className="space-y-2.5">
-            <h3
-              className={`text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5 ${
-                isLight ? 'text-slate-500' : 'text-slate-400'
-              }`}
-            >
-              <Info className="w-3.5 h-3.5 text-blue-400" />
-              About Groovy
-            </h3>
-
-            <div
-              className={`rounded-2xl border p-4 space-y-3 ${
-                isLight
-                  ? 'bg-gradient-to-br from-violet-50 via-white to-blue-50 border-violet-200'
-                  : 'bg-gradient-to-br from-violet-950/35 via-[#131322] to-blue-950/25 border-violet-500/25'
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div className="h-12 w-12 shrink-0 overflow-hidden rounded-full border-2 border-violet-400/70 bg-[#141426] shadow-md">
-                  <img
-                    src={groovyAvatarUrl}
-                    alt="Groovy assistant"
-                    referrerPolicy="no-referrer"
-                    className="h-full w-full object-cover scale-105"
-                  />
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h4
-                      className={`font-display text-sm font-bold ${
-                        isLight ? 'text-slate-900' : 'text-white'
-                      }`}
-                    >
-                      Groovy Voice Assistant
-                    </h4>
-                    <span
-                      className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${
-                        isLight
-                          ? 'bg-violet-100 text-violet-700'
-                          : 'bg-violet-500/20 text-violet-200'
-                      }`}
-                    >
-                      <Sparkles className="w-2.5 h-2.5" />
-                      Tap-to-Talk
-                    </span>
-                  </div>
-                  <p
-                    className={`text-[11px] mt-0.5 ${
-                      isLight ? 'text-slate-600' : 'text-slate-300'
-                    }`}
-                  >
-                    Smart music discovery &amp; voice control for GullyGroove
-                  </p>
-                </div>
-              </div>
-
-              <p
-                className={`text-xs leading-relaxed rounded-xl px-3 py-2.5 border ${
-                  isLight
-                    ? 'bg-white/80 border-violet-200/80 text-slate-600'
-                    : 'bg-[#0B0B14]/70 border-white/[0.06] text-slate-300'
-                }`}
-              >
-                <span
-                  className={`block font-display font-bold mb-1 ${
-                    isLight ? 'text-violet-700' : 'text-violet-300'
-                  }`}
-                >
-                  Your Music. Your Voice. Your Vibe.
-                </span>
-                Groovy is more than just a music player — it&apos;s your personal music
-                companion, designed to make listening effortless, fun, and interactive.
-              </p>
-
-              <div
-                className={`flex items-center justify-between gap-2 pt-2 border-t text-[11px] ${
-                  isLight
-                    ? 'border-violet-200/70 text-slate-500'
-                    : 'border-white/[0.08] text-slate-400'
-                }`}
-              >
-                <span className="inline-flex items-center gap-1">
-                  <Mic className="w-3 h-3 text-violet-400" />
-                  Supports all 16 playlists &amp; artists
-                </span>
-                <span className="font-mono-tabular">GullyGroove v2.0</span>
-              </div>
             </div>
           </section>
         </div>

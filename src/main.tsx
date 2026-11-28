@@ -2,6 +2,7 @@ import {Component, type ErrorInfo, type ReactNode} from 'react';
 import {createRoot} from 'react-dom/client';
 import {registerSW} from 'virtual:pwa-register';
 import App from './App.tsx';
+import {FirebaseProvider} from './contexts/FirebaseContext.tsx';
 import './index.css';
 
 if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
@@ -60,6 +61,8 @@ class AppErrorBoundary extends Component<{children: ReactNode}, ErrorBoundarySta
 
 createRoot(document.getElementById('root')!).render(
   <AppErrorBoundary>
-    <App />
+    <FirebaseProvider>
+      <App />
+    </FirebaseProvider>
   </AppErrorBoundary>
 );

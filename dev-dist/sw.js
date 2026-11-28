@@ -78,14 +78,16 @@ define(['./workbox-43e44e5a'], (function (workbox) { 'use strict';
    */
   workbox.precacheAndRoute([{
     "url": "index.html",
-    "revision": "0.rer6rckmkh"
+    "revision": "0.s0mu9psbhug"
   }], {});
   workbox.cleanupOutdatedCaches();
   workbox.registerRoute(new workbox.NavigationRoute(workbox.createHandlerBoundToURL("index.html"), {
     allowlist: [/^\/$/],
     denylist: [/^\/api\//]
   }));
-  workbox.registerRoute(/^\/api\//i, new workbox.NetworkOnly(), 'GET');
+  workbox.registerRoute(({
+    url
+  }) => url.pathname.startsWith("/api/"), new workbox.NetworkOnly(), 'GET');
   workbox.registerRoute(/^https:\/\/fonts\.googleapis\.com\/.*/i, new workbox.CacheFirst({
     "cacheName": "google-fonts-cache",
     plugins: [new workbox.ExpirationPlugin({

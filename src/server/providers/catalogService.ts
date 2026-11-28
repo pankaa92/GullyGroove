@@ -15,6 +15,10 @@ import { YoutubeDataProvider } from './youtubeProvider';
 
 export const PRIVATE_PLAYLIST_ID = 'my-playlist';
 
+export function isPrivatePlaylistId(playlistId: string): boolean {
+  return playlistId === PRIVATE_PLAYLIST_ID || playlistId.startsWith('priv-');
+}
+
 const LEGACY_PLAYLIST_MAP: Record<string, string> = {
   'traveling-vibes': 'bus-driver-playlist',
   'evergreen-bollywood': '90s-hindi-classics',
@@ -28,6 +32,7 @@ const LEGACY_PLAYLIST_MAP: Record<string, string> = {
 const SHARED_STORE_PATH = path.resolve(process.cwd(), 'data', 'shared-catalog.json');
 
 interface PersistedSharedStore {
+  sharedPlaylists?: Array<Omit<PlaylistWithStats, 'trackCount' | 'totalDurationSec'>>;
   sharedTracks: Track[];
   sharedAssignments: Record<string, string[]>;
 }
@@ -45,7 +50,7 @@ function sanitizeSharedPlaylistIds(ids: string[] | undefined): string[] {
       (ids || [])
         .filter(
           (id) =>
-            id !== PRIVATE_PLAYLIST_ID &&
+            !isPrivatePlaylistId(id) &&
             id !== 'relaxing-music' &&
             id !== 'gapless-playback' &&
             id !== 'trending-international'
@@ -75,6 +80,8 @@ class CatalogService {
   private youtube = new YoutubeDataProvider();
   private jamendo = new JamendoCcProvider();
 
+  private sharedPlaylists: Array<Omit<PlaylistWithStats, 'trackCount' | 'totalDurationSec'>> = [];
+
   constructor() {
     this.loadPersistedSharedStore();
   }
@@ -84,9 +91,20 @@ class CatalogService {
       if (!fs.existsSync(SHARED_STORE_PATH)) return;
       const raw = fs.readFileSync(SHARED_STORE_PATH, 'utf8');
       const parsed = JSON.parse(raw) as Partial<PersistedSharedStore>;
+
+      if (Array.isArray(parsed.sharedPlaylists)) {
+        for (const pl of parsed.sharedPlaylists) {
+          if (!pl || !pl.id || isPrivatePlaylistId(pl.id)) continue;
+          if (!this.playlists.some((existing) => existing.id === pl.id)) {
+            this.playlists.push(pl);
+            this.sharedPlaylists.push(pl);
+          }
+        }
+      }
+
       const validPlaylistIds = new Set(
         this.playlists
-          .filter((p) => p.id !== PRIVATE_PLAYLIST_ID)
+          .filter((p) => !isPrivatePlaylistId(p.id))
           .map((p) => p.id)
       );
 
@@ -141,6 +159,7 @@ class CatalogService {
         fs.mkdirSync(dir, { recursive: true });
       }
       const payload: PersistedSharedStore = {
+        sharedPlaylists: this.sharedPlaylists,
         sharedTracks: this.sharedTracks,
         sharedAssignments: this.sharedAssignments,
       };
@@ -311,7 +330,7 @@ class CatalogService {
 
   addAuthorisedTrack(input: NewAuthorisedTrackInput): Track {
     const targetPlaylistId =
-      input.playlistId && input.playlistId !== PRIVATE_PLAYLIST_ID
+      input.playlistId && !isPrivatePlaylistId(input.playlistId)
         ? input.playlistId
         : 'top-50-hindi';
     const id = `vault-${Date.now().toString(36)}`;
@@ -340,7 +359,7 @@ class CatalogService {
 
     newTrack.playlistIds = Array.from(
       new Set([...refineTrackPlaylistIds(newTrack), targetPlaylistId])
-    ).filter((pid) => pid !== PRIVATE_PLAYLIST_ID);
+    ).filter((pid) => !isPrivatePlaylistId(pid));
 
     this.tracks.unshift(newTrack);
     this.sharedTracks.unshift(newTrack);
@@ -363,13 +382,35 @@ class CatalogService {
   assignTrackToPlaylist(
     trackId: string,
     playlistId: string,
-    discoveredTrack?: Track
+    discoveredTrack?: Track,
+    playlistMeta?: Partial<PlaylistWithStats>
   ): Track | null {
-    if (playlistId === PRIVATE_PLAYLIST_ID) {
+    if (isPrivatePlaylistId(playlistId)) {
       return null;
     }
 
-    const playlist = this.playlists.find((p) => p.id === playlistId);
+    let playlist = this.playlists.find((p) => p.id === playlistId);
+    if (!playlist && playlistId.startsWith('shared-')) {
+      const createdSharedPlaylist = {
+        id: playlistId,
+        slug: playlistId,
+        title: String(playlistMeta?.title || 'Shared Community Mix').slice(0, 120),
+        subtitle: String(playlistMeta?.subtitle || 'Community Shared Playlist').slice(0, 160),
+        description: String(
+          playlistMeta?.description || 'Collaborative shared playlist open to all GullyGroove users.'
+        ).slice(0, 500),
+        mood: String(playlistMeta?.mood || 'Community Mix').slice(0, 80),
+        region:
+          playlistMeta?.region === 'India' || playlistMeta?.region === 'Global'
+            ? playlistMeta.region
+            : ('Pan-India' as const),
+        coverUrl: String(playlistMeta?.coverUrl || COVER_ASSETS.heroStage).slice(0, 1000),
+        curatedBy: String(playlistMeta?.curatedBy || 'Shared Community').slice(0, 120),
+      };
+      this.playlists.push(createdSharedPlaylist);
+      this.sharedPlaylists.push(createdSharedPlaylist);
+      playlist = createdSharedPlaylist;
+    }
     if (!playlist) return null;
 
     let track = this.tracks.find((t) => t.id === trackId);
@@ -391,7 +432,7 @@ class CatalogService {
             }),
             playlistId,
           ])
-        ).filter((pid) => pid !== PRIVATE_PLAYLIST_ID),
+        ).filter((pid) => !isPrivatePlaylistId(pid)),
       };
       this.tracks.unshift(track);
       this.sharedTracks.unshift(track);
@@ -409,7 +450,7 @@ class CatalogService {
     if (existingSharedTrack) {
       existingSharedTrack.playlistIds = Array.from(
         new Set([...existingSharedTrack.playlistIds, ...track.playlistIds])
-      ).filter((pid) => pid !== PRIVATE_PLAYLIST_ID);
+      ).filter((pid) => !isPrivatePlaylistId(pid));
     } else if (!addedNewGlobalTrack) {
       const currentExtra = new Set(this.sharedAssignments[track.id] || []);
       if (!currentExtra.has(playlistId)) {

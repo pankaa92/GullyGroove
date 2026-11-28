@@ -369,7 +369,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/bdK4W',
     externalUrl: 'https://audius.co',
     attribution: 'YKK via Audius Open Streaming',
-    playlistIds: ['party-dj-hits', 'top-50-hindi', 'saloon-playlist', 'workout-motivation', 'sab-chalega'],
+    playlistIds: ['party-dj-hits', 'saloon-playlist', 'workout-motivation', 'sab-chalega'],
     audioProfile: { bpm: 124, rootHz: 293.66, scale: 'pentatonic', groove: 'punjabi-dhol', intensity: 0.92 },
     plays: 2410500,
   },
@@ -461,7 +461,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/RNYgX',
     externalUrl: 'https://audius.co',
     attribution: 'Paul Lee via Audius Open Streaming',
-    playlistIds: ['saloon-playlist', 'top-50-hindi', 'party-dj-hits', 'sab-chalega'],
+    playlistIds: ['saloon-playlist', 'party-dj-hits', 'sab-chalega'],
     audioProfile: { bpm: 116, rootHz: 277.18, scale: 'dorian', groove: 'punjabi-dhol', intensity: 0.85 },
     plays: 865400,
   },
@@ -507,7 +507,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/bm3EYBk',
     externalUrl: 'https://audius.co',
     attribution: 'camoufly via Audius Open Streaming',
-    playlistIds: ['workout-motivation', 'party-dj-hits', 'top-50-hindi', 'sab-chalega'],
+    playlistIds: ['workout-motivation', 'party-dj-hits', 'sab-chalega'],
     audioProfile: { bpm: 132, rootHz: 164.81, scale: 'minor', groove: 'workout-edm', intensity: 0.96 },
     plays: 1749200,
   },
@@ -691,7 +691,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/laPYZ',
     externalUrl: 'https://audius.co',
     attribution: 'Composer Squad via Audius Open Streaming',
-    playlistIds: ['workout-motivation', 'bus-driver-playlist', 'top-50-hindi'],
+    playlistIds: ['workout-motivation', 'bus-driver-playlist', 'sab-chalega'],
     audioProfile: { bpm: 126, rootHz: 293.66, scale: 'major', groove: 'workout-edm', intensity: 0.88 },
     plays: 1290400,
   },
@@ -921,7 +921,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     streamUrl: '/api/audius/stream/62o3E',
     externalUrl: 'https://audius.co',
     attribution: 'Naeemniloy via Audius Open Streaming',
-    playlistIds: ['workout-motivation', 'top-50-hindi'],
+    playlistIds: ['workout-motivation', 'party-dj-hits', 'sab-chalega'],
     audioProfile: { bpm: 112, rootHz: 293.66, scale: 'dorian', groove: 'punjabi-dhol', intensity: 0.88 },
     plays: 1420000,
   },
@@ -1774,7 +1774,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     embedId: 'rOirJKJoE0o',
     externalUrl: 'https://youtu.be/rOirJKJoE0o',
     attribution: 'Official YouTube Channel: Aditya Music',
-    playlistIds: ['south-hits', 'top-50-hindi'],
+    playlistIds: ['south-hits', 'sab-chalega'],
     plays: 10900000,
   },
   {
@@ -2015,7 +2015,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     embedId: '7SaM24Cjzj0',
     externalUrl: 'https://youtu.be/7SaM24Cjzj0',
     attribution: 'Official YouTube Channel: Channel Arbitrary',
-    playlistIds: ['nepali-northeast-hits', 'top-50-hindi'],
+    playlistIds: ['nepali-northeast-hits', 'sab-chalega'],
     plays: 7400000,
   },
   {
@@ -2812,7 +2812,7 @@ const BASE_CURATED_TRACKS: Track[] = [
     embedId: 'i7CFfLVwwuQ',
     externalUrl: 'https://youtu.be/i7CFfLVwwuQ',
     attribution: 'Official YouTube Channel: T-Series',
-    playlistIds: ['shadi-sangeet-playlist', 'top-50-hindi'],
+    playlistIds: ['shadi-sangeet-playlist', 'party-dj-hits', 'sab-chalega'],
     plays: 22100000,
   },
   {
@@ -3678,6 +3678,38 @@ const BAJAO_LANGUAGE_LABELS: Record<string, string> = {
 
 const SOUTH_BAJAO_LANGS = new Set(['tamil', 'telugu', 'malayalam', 'kannada']);
 
+const BAJAO_PUNJABI_LANGUAGE_FIX_IDS = new Set([
+  'lahore',
+  'coka',
+  'prada',
+  'lamberghini',
+  'nikle-currant',
+  'photo',
+  'ban-ja-rani',
+  'ishare-tere',
+  'naach-meri-rani',
+  'dance-meri-rani',
+  'kaun-nachdi',
+  'slowly-slowly',
+  'enni-soni',
+  'brown-rang',
+  'desi-kalakaar',
+  'kalaastar',
+  'millionaire',
+  'payal',
+  'baari-barsi',
+  'the-punjaabban-song',
+  'nach-punjaban',
+  'kudi-kanwari',
+  'bhangra-ta-sajda',
+  'kudi-nu-nachne-de',
+  'munda-sona-hoon-main',
+  'kyaa-baat-haii-20',
+  'chittiyaan-kalaiyaan',
+]);
+
+const BAJAO_HARYANVI_LANGUAGE_FIX_IDS = new Set(['teri-aakhya-ka-yo-kajal']);
+
 function formatBajaoLanguage(lang: string): string {
   const key = (lang || 'hindi').trim().toLowerCase();
   return BAJAO_LANGUAGE_LABELS[key] || 'Hindi';
@@ -3696,17 +3728,19 @@ function mapBajaoPlaylistIds(
     const mapped = BAJAO_CATEGORY_TO_PLAYLIST[extra];
     if (mapped) ids.add(mapped);
   }
+  if (language === 'punjabi') {
+    ids.add('party-dj-hits');
+  }
   if (SOUTH_BAJAO_LANGS.has(language)) {
     ids.add('south-hits');
   }
   if (language === 'bhojpuri') {
     ids.add('bhojpuri-hits');
   }
-  if (category !== 'bhakti') {
-    ids.add('sab-chalega');
-  }
+  ids.add('sab-chalega');
   if (
     language === 'hindi' &&
+    category !== 'bhakti' &&
     banger === 1 &&
     (category === 'club' || category === 'baraat' || category === '3am')
   ) {
@@ -3753,9 +3787,14 @@ function buildInitialTracks(): Track[] {
     heat,
   ] of BAJAO_SONGS) {
     if (!youtubeIds || youtubeIds.length === 0) continue;
+    const effectiveLang = BAJAO_PUNJABI_LANGUAGE_FIX_IDS.has(songId)
+      ? 'punjabi'
+      : BAJAO_HARYANVI_LANGUAGE_FIX_IDS.has(songId)
+        ? 'haryanvi'
+        : rawLang;
     const primaryYtId = youtubeIds[0];
     const fallbackIds = youtubeIds.slice(1);
-    const playlistIds = mapBajaoPlaylistIds(category, also, rawLang, banger);
+    const playlistIds = mapBajaoPlaylistIds(category, also, effectiveLang, banger);
 
     let existing: Track | undefined;
     for (const yid of youtubeIds) {
@@ -3806,7 +3845,7 @@ function buildInitialTracks(): Track[] {
       artist,
       album: meta.album,
       genre: meta.genre,
-      language: formatBajaoLanguage(rawLang),
+      language: formatBajaoLanguage(effectiveLang),
       durationSec,
       bpm: bpm || 112,
       year: meta.year,
